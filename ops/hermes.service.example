@@ -1,0 +1,22 @@
+[Unit]
+Description=Hermes email daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hermes
+Group=hermes
+WorkingDirectory=/home/soth/Projects/hermes
+EnvironmentFile=/home/hermes/.config/hermes/hermes.env
+ExecStart=/home/soth/Projects/hermes/build/hermesd
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/soth/Projects/hermes/build
+
+[Install]
+WantedBy=multi-user.target

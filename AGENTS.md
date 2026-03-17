@@ -1,147 +1,138 @@
 # AGENTS.md
-Guidance for autonomous coding agents in this repository.
+Operating rules for coding agents in `hermes`.
 
-## Repository Snapshot
-- The current directory is empty (no source, manifests, or tests detected).
-- No prior `AGENTS.md` was found.
-- No Cursor rules found in `.cursor/rules/` or `.cursorrules`.
+## Scope
+- This repository is C-only.
+- Target style is minimalist, Unix-first, suckless-inspired C.
+- Keep code small, direct, and readable.
+- Avoid framework creep and unnecessary dependencies.
+
+## Local Policy Files
+- No Cursor rules found in `.cursor/rules/`.
+- No `.cursorrules` found.
 - No Copilot rules found in `.github/copilot-instructions.md`.
-- This file provides default behavior until real project files exist.
+- If these files appear later, they override this document.
 
 ## Build / Lint / Test Commands
-Use repository-defined commands first; use fallback commands only when needed.
+Use `make` targets as the source of truth.
 
-### Toolchain Detection
-Identify ecosystem from manifests before running commands:
-- Node: `package.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock*`
-- Python: `pyproject.toml`, `requirements.txt`, `poetry.lock`, `pytest.ini`
-- Go: `go.mod`
-- Rust: `Cargo.toml`
-- Java/Kotlin: `build.gradle*`, `pom.xml`
-- .NET: `*.sln`, `*.csproj`
+### Core Commands
+- Build debug: `make`
+- Build release: `make release`
+- Run daemon: `make run`
+- Run static checks: `make lint`
+- Run tests: `make test`
+- Clean: `make clean`
 
-### Node / JavaScript / TypeScript
-If `package.json` exists:
-- Install: `npm ci` (or lockfile-matching package manager)
-- Build: `npm run build`
-- Lint: `npm run lint`
-- Test all: `npm test` or `npm run test`
-- Single test file: `npm test -- path/to/test.spec.ts`
-- Single test name: `npm test -- -t "test name"`
-Framework-specific fallbacks:
-- Vitest file: `npx vitest run path/to/test.spec.ts`
-- Vitest name: `npx vitest run -t "test name"`
-- Jest file: `npx jest path/to/test.spec.ts`
-- Jest name: `npx jest -t "test name"`
+### Single-Test Execution
+- Run one test by name: `make test TEST=test_name`
+- Run one test binary: `./tests/test_config`
+- Run one case with CMocka/Criterion filter (if adopted):
+  - `./tests/test_config --single test_name`
 
-### Python
-- Lint: `ruff check .`
-- Format check: `ruff format --check .` or `black --check .`
-- Type check: `mypy .` or `pyright` (if configured)
-- Test all: `pytest`
-- Single test file: `pytest tests/test_file.py`
-- Single test function: `pytest tests/test_file.py::test_name`
-- Name filter: `pytest -k "name_fragment"`
+### Tooling Expectations
+- Compiler: `cc` with C17 (`-std=c17`)
+- Warnings: `-Wall -Wextra -Wpedantic -Werror`
+- Sanitizers in debug when possible: `-fsanitize=address,undefined`
+- Format check (if `clang-format` exists): `make fmt-check`
+- Static analysis (if `clang-tidy` exists): `make lint`
 
-### Go
-- Build: `go build ./...`
-- Lint: `golangci-lint run` (if configured)
-- Test all: `go test ./...`
-- Single package: `go test ./path/to/pkg`
-- Single test: `go test ./path/to/pkg -run TestName`
+## Project Layout
+- `src/` runtime code
+- `include/` headers
+- `tests/` unit/integration tests
+- `ops/` service examples and deployment notes
+- `build/` local artifacts (gitignored)
 
-### Rust
-- Build: `cargo build`
-- Lint: `cargo clippy --all-targets --all-features -D warnings`
-- Format check: `cargo fmt -- --check`
-- Test all: `cargo test`
-- Single test: `cargo test test_name`
+## C Style Guide
 
-### Java / Kotlin
-Gradle:
-- Build: `./gradlew build`
-- Lint: `./gradlew lint` (or configured static analysis)
-- Test all: `./gradlew test`
-- Single test: `./gradlew test --tests "com.example.ClassName.testName"`
-Maven:
-- Build: `mvn -DskipTests package`
-- Test all: `mvn test`
-- Single test class: `mvn -Dtest=ClassName test`
-- Single test method: `mvn -Dtest=ClassName#methodName test`
+### Language and Standard Library
+- Use portable C17.
+- Prefer libc + POSIX APIs over large external layers.
+- Keep external libraries minimal and justified.
+- No C++.
 
-### .NET
-- Build: `dotnet build`
-- Test all: `dotnet test`
-- Single test: `dotnet test --filter "FullyQualifiedName~TestName"`
+### File and Function Size
+- Keep files focused by module.
+- Keep functions short and single-purpose.
+- Prefer extraction over deep nesting.
+- Use early returns to reduce indentation.
 
-### Command Execution Rules
-- Prefer repo scripts/config over guessed defaults.
-- Start with smallest useful check (single test / changed module).
-- Run broader suites for medium/high-risk changes.
-- If toolchain is missing, report exact dependency blocker and stop.
-
-## Code Style Guidelines
-Apply defaults below unless project config overrides them.
-
-### Imports
-- Keep imports explicit, minimal, and used.
-- Group order: standard library, third-party, internal modules.
-- Separate groups with one blank line.
-- Avoid wildcard imports unless project convention requires them.
-
-### Formatting
-- Use the configured formatter/linter as source of truth.
-- Do not hand-format against formatter output.
-- Keep lines readable (target ~100 columns unless configured otherwise).
-- No trailing whitespace; always end files with newline.
-
-### Types
-- Prefer explicit types at public boundaries.
-- Use local inference when type is obvious and readability improves.
-- Avoid `any`/untyped escapes unless unavoidable.
-- Represent optional/nullability explicitly.
+### Headers and Includes
+- Include what you use.
+- Order includes:
+  1) corresponding local header,
+  2) project headers,
+  3) system headers.
+- One blank line between groups.
+- Avoid transitive include reliance.
 
 ### Naming
-- Use descriptive, domain-relevant names.
-- Follow language-idiomatic casing consistently.
-- Name booleans as predicates (`is`, `has`, `can`, `should`).
-- Avoid unclear abbreviations unless already standard in codebase.
+- Files/modules: `lower_snake_case`.
+- Functions/variables: `lower_snake_case`.
+- Struct typedef names: `snake_case_t`.
+- Macros/constants: `UPPER_SNAKE_CASE`.
+- Internal-only symbols should be `static`.
+
+### Formatting
+- Tabs for indentation, tabsize 8 (suckless style).
+- Braces on same line for functions and control blocks.
+- One declaration per line.
+- Keep lines readable; hard cap at 100 unless unavoidable.
+- No trailing whitespace.
+
+### Memory and Ownership
+- Make ownership obvious at API boundaries.
+- Pair alloc/free in same module where possible.
+- Free on all error paths.
+- Set pointers to `NULL` after free when reused.
+- Avoid hidden global mutable state.
 
 ### Error Handling
-- Validate inputs at boundaries and fail fast.
-- Never swallow errors silently.
-- Include actionable context in error messages.
-- Preserve root cause/context when wrapping errors.
+- Return `0` on success, `-1` on failure unless API dictates otherwise.
+- Set `errno` or propagate precise error codes.
+- Emit concise diagnostics to `stderr`/syslog with context.
+- Do not swallow errors.
+- Fail fast at boundaries; recover only when meaningful.
 
-### Code Structure
-- Prefer small, single-purpose functions.
-- Use guard clauses to avoid deep nesting.
-- Keep side effects localized and explicit.
-- Separate pure business logic from I/O and framework glue.
+### Control Flow
+- Prefer guard clauses over nested `if` towers.
+- Avoid `goto` except for single cleanup label patterns.
+- No recursion unless clearly bounded and justified.
+- Keep state machines explicit and small.
+
+### Concurrency
+- Default to single-process event loop for simplicity.
+- Add threads only with clear performance need.
+- Protect shared state explicitly.
 
 ### Comments and Documentation
-- Prioritize clear code over excessive comments.
-- Comment non-obvious intent, invariants, or tradeoffs.
-- Keep comments/docs synced with code changes.
-- Update public-facing docs for behavior/interface changes.
+- Avoid obvious comments.
+- Comment protocol edge-cases, invariants, and tricky decisions.
+- Keep comments short and current.
+- Document public APIs in headers.
 
-### Testing
-- Add or update tests for behavior changes.
-- Cover success paths, edge cases, and failures.
-- Keep tests deterministic; avoid flaky timing/network dependencies.
+## Security and Ops Constraints
+- Never commit secrets, API keys, or passwords.
+- Read credentials from environment or local untracked config.
+- Run daemon as least-privileged dedicated user (`hermes`) if possible.
+- Do not modify existing mail server config by default.
+- Hermes must connect as a normal IMAP/SMTP client only.
 
-### Security and Dependencies
-- Never commit secrets, tokens, or credentials.
-- Prefer pinned/locked dependency workflows.
-- Minimize new dependencies and justify significant additions.
-- Sanitize and validate untrusted input at boundaries.
+## Testing Expectations
+- Add tests with every behavior change.
+- Prefer deterministic tests; avoid real network in unit tests.
+- Use small fixture inputs and stable outputs.
+- Cover success path, malformed input, and failure path.
 
-## Cursor and Copilot Rules
-No repository-specific instruction files currently exist:
-- `.cursor/rules/`
-- `.cursorrules`
-- `.github/copilot-instructions.md`
-If these files appear later, treat them as higher-priority local policy and merge their constraints here.
+## Agent Workflow
+- Read existing code before editing.
+- Make the smallest coherent change first.
+- Build and run targeted tests before broad checks.
+- Keep commits focused and message intent-first.
+- If missing context blocks progress, state blocker and best next action.
 
 ## Maintenance
-When project files are added, replace generic commands with exact repo commands, verify single-test examples, and document project-specific style exceptions.
+- Keep this file aligned with actual `Makefile` targets.
+- Update single-test instructions when test harness evolves.
+- Add project-specific protocol notes as IMAP/SMTP features land.

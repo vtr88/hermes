@@ -1,0 +1,6 @@
+build/
+.env
+*.o
+*.a
+*.so
+*.log
