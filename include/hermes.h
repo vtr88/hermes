@@ -6,13 +6,16 @@ typedef struct {
 	char *openai_key;
 	char *openai_model;
 	char *openai_url;
+	char *openai_system;
 	char *imap_url;
 	char *smtp_url;
 	char *mail_user;
 	char *mail_pass;
 	char *mail_from;
 	char *mail_to;
+	char *allow_from;
 	char *db_path;
+	int max_prompt_chars;
 	int poll_seconds;
 } hermes_config_t;
 

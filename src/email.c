@@ -68,6 +68,27 @@ static char *xstrndup(const char *s, size_t n)
 	return p;
 }
 
+static int append_line(char **acc, const char *line)
+{
+	char *next;
+	size_t a;
+	size_t l;
+
+	if (!acc || !line)
+		return -1;
+	a = *acc ? strlen(*acc) : 0;
+	l = strlen(line);
+	next = realloc(*acc, a + l + 2);
+	if (!next)
+		return -1;
+	*acc = next;
+	memcpy(*acc + a, line, l);
+	a += l;
+	(*acc)[a++] = '\n';
+	(*acc)[a] = '\0';
+	return 0;
+}
+
 static void trim_ascii(char *s)
 {
 	char *e;
@@ -123,6 +144,74 @@ static char *header_value(const char *headers, const char *name)
 		p = *end ? end + 1 : end;
 	}
 	return NULL;
+}
+
+static int starts_reply_marker(const char *line)
+{
+	if (!line)
+		return 0;
+	if (strncasecmp(line, "On ", 3) == 0 && strstr(line, " wrote:"))
+		return 1;
+	if (strncasecmp(line, "From:", 5) == 0)
+		return 1;
+	if (strncasecmp(line, "Sent:", 5) == 0)
+		return 1;
+	if (strncasecmp(line, "-----Original Message-----", 26) == 0)
+		return 1;
+	return 0;
+}
+
+static char *sanitize_body_text(const char *raw)
+{
+	char *tmp;
+	char *out;
+	char *line;
+	size_t n;
+	int blanks;
+
+	if (!raw)
+		return xstrdup("");
+	tmp = xstrdup(raw);
+	if (!tmp)
+		return NULL;
+
+	for (n = 0; tmp[n]; n++) {
+		if (tmp[n] == '\r')
+			tmp[n] = '\n';
+	}
+
+	out = NULL;
+	blanks = 0;
+	line = strtok(tmp, "\n");
+	while (line) {
+		if (starts_reply_marker(line))
+			break;
+		if (*line == '>') {
+			line = strtok(NULL, "\n");
+			continue;
+		}
+		trim_ascii(line);
+		if (*line == '\0') {
+			if (blanks >= 1) {
+				line = strtok(NULL, "\n");
+				continue;
+			}
+			blanks++;
+		} else {
+			blanks = 0;
+		}
+		if (append_line(&out, line) < 0) {
+			free(out);
+			free(tmp);
+			return NULL;
+		}
+		line = strtok(NULL, "\n");
+	}
+
+	free(tmp);
+	if (!out)
+		return xstrdup("");
+	return out;
 }
 
 #ifdef HERMES_WITH_CURL
@@ -274,6 +363,15 @@ static int message_from_uid(const hermes_config_t *cfg, unsigned long uid, herme
 		goto fail;
 	if (imap_exec(cfg, burl, NULL, &body) < 0)
 		goto fail;
+	{
+		char *clean;
+
+		clean = sanitize_body_text(body);
+		if (!clean)
+			goto fail;
+		free(body);
+		body = clean;
+	}
 
 	msgid = header_value(headers, "Message-ID");
 	if (!msgid)

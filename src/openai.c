@@ -13,9 +13,7 @@ typedef struct {
 	char *buf;
 	size_t len;
 } mem_t;
-#endif
 
-#ifdef HERMES_WITH_CURL
 static char *xstrdup(const char *s)
 {
 	char *p;
@@ -88,54 +86,6 @@ static char *json_escape(const char *s)
 	return out;
 }
 
-static char *extract_output_text(const char *json)
-{
-	const char *k;
-	const char *p;
-	char *out;
-	char *w;
-
-	if (!json)
-		return NULL;
-	k = "\"output_text\":\"";
-	p = strstr(json, k);
-	if (!p)
-		return NULL;
-	p += strlen(k);
-	out = malloc(strlen(p) + 1);
-	if (!out)
-		return NULL;
-	w = out;
-
-	while (*p) {
-		if (*p == '\\') {
-			p++;
-			if (*p == 'n')
-				*w++ = '\n';
-			else if (*p == 'r')
-				*w++ = '\r';
-			else if (*p == 't')
-				*w++ = '\t';
-			else if (*p == '"')
-				*w++ = '"';
-			else if (*p == '\\')
-				*w++ = '\\';
-			else if (*p == '\0')
-				break;
-			else
-				*w++ = *p;
-			if (*p)
-				p++;
-			continue;
-		}
-		if (*p == '"')
-			break;
-		*w++ = *p++;
-	}
-	*w = '\0';
-	return out;
-}
-
 static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *ud)
 {
 	char *next;
@@ -153,21 +103,177 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *ud)
 	m->buf[m->len] = '\0';
 	return n;
 }
+
+static char *json_unescape_quoted(const char *p, const char **endp)
+{
+	char *out;
+	char *w;
+
+	out = malloc(strlen(p) + 1);
+	if (!out)
+		return NULL;
+	w = out;
+	while (*p) {
+		if (*p == '"') {
+			if (endp)
+				*endp = p + 1;
+			*w = '\0';
+			return out;
+		}
+		if (*p == '\\') {
+			p++;
+			if (!*p)
+				break;
+			switch (*p) {
+			case 'n':
+				*w++ = '\n';
+				break;
+			case 'r':
+				*w++ = '\r';
+				break;
+			case 't':
+				*w++ = '\t';
+				break;
+			case '"':
+				*w++ = '"';
+				break;
+			case '\\':
+				*w++ = '\\';
+				break;
+			default:
+				*w++ = *p;
+				break;
+			}
+			p++;
+			continue;
+		}
+		*w++ = *p++;
+	}
+	if (endp)
+		*endp = p;
+	*w = '\0';
+	return out;
+}
+
+static int append_line(char **acc, const char *line)
+{
+	char *next;
+	size_t a;
+	size_t l;
+
+	if (!acc || !line)
+		return -1;
+	a = *acc ? strlen(*acc) : 0;
+	l = strlen(line);
+	next = realloc(*acc, a + l + 3);
+	if (!next)
+		return -1;
+	*acc = next;
+	memcpy(*acc + a, line, l);
+	a += l;
+	(*acc)[a++] = '\n';
+	(*acc)[a] = '\0';
+	return 0;
+}
+
+static char *extract_output_text(const char *json)
+{
+	const char *p;
+	char *acc;
+
+	if (!json)
+		return NULL;
+
+	p = strstr(json, "\"output_text\":\"");
+	if (p) {
+		p += strlen("\"output_text\":\"");
+		return json_unescape_quoted(p, NULL);
+	}
+
+	acc = NULL;
+	p = json;
+	while ((p = strstr(p, "\"type\":\"output_text\"")) != NULL) {
+		const char *t;
+		const char *end;
+		char *line;
+
+		t = strstr(p, "\"text\":\"");
+		if (!t)
+			break;
+		t += strlen("\"text\":\"");
+		line = json_unescape_quoted(t, &end);
+		if (!line) {
+			free(acc);
+			return NULL;
+		}
+		if (*line && append_line(&acc, line) < 0) {
+			free(line);
+			free(acc);
+			return NULL;
+		}
+		free(line);
+		p = end;
+	}
+
+	if (acc && *acc)
+		return acc;
+	free(acc);
+	return NULL;
+}
+
+static char *build_input(const hermes_config_t *cfg, const char *prompt)
+{
+	int n;
+	char *out;
+
+	n = snprintf(NULL, 0,
+		"System:\n%s\n\nUser:\n%s\n\nAssistant:",
+		cfg->openai_system ? cfg->openai_system : "",
+		prompt ? prompt : "");
+	if (n < 0)
+		return NULL;
+	out = malloc((size_t)n + 1);
+	if (!out)
+		return NULL;
+	snprintf(out, (size_t)n + 1,
+		"System:\n%s\n\nUser:\n%s\n\nAssistant:",
+		cfg->openai_system ? cfg->openai_system : "",
+		prompt ? prompt : "");
+	return out;
+}
+
+static char *compact_json_hint(const char *json)
+{
+	char *out;
+	size_t i;
+	size_t j;
+
+	if (!json)
+		return xstrdup("[hermes] empty OpenAI response");
+	out = malloc(512);
+	if (!out)
+		return NULL;
+	for (i = 0, j = 0; json[i] && j < 500; i++) {
+		if (json[i] == '\n' || json[i] == '\r' || json[i] == '\t')
+			continue;
+		out[j++] = json[i];
+	}
+	out[j] = '\0';
+	return out;
+}
 #endif
 
 int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply_out)
 {
-	const char *p;
-
 	if (!cfg || !cfg->openai_key || !reply_out)
 		return -1;
-	p = prompt ? prompt : "";
 
 #ifdef HERMES_WITH_CURL
 	{
 		CURL *c;
 		CURLcode rc;
 		char *esc;
+		char *input;
 		char *body;
 		char auth[1024];
 		mem_t resp;
@@ -176,7 +282,11 @@ int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply
 		int n;
 
 		*reply_out = NULL;
-		esc = json_escape(p);
+		input = build_input(cfg, prompt ? prompt : "");
+		if (!input)
+			return -1;
+		esc = json_escape(input);
+		free(input);
 		if (!esc)
 			return -1;
 
@@ -230,7 +340,7 @@ int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply
 
 		text = extract_output_text(resp.buf);
 		if (!text)
-			text = resp.buf ? xstrdup(resp.buf) : xstrdup("");
+			text = compact_json_hint(resp.buf);
 		free(resp.buf);
 		if (!text)
 			return -1;
@@ -242,13 +352,13 @@ int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply
 		char *out;
 		size_t n;
 
-		n = strlen(p) + 160;
+		n = strlen(prompt ? prompt : "") + 200;
 		out = malloc(n);
 		if (!out)
 			return -1;
 		snprintf(out, n,
 			"[hermes] built without libcurl.\nInstall libcurl dev package, then rebuild.\nPrompt:\n%s\n",
-			p);
+			prompt ? prompt : "");
 		*reply_out = out;
 		return 0;
 	}

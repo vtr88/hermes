@@ -38,6 +38,10 @@ static int test_defaults(void)
 		cfg_free(&cfg);
 		return -1;
 	}
+	if (!cfg.openai_system || cfg.max_prompt_chars != 12000) {
+		cfg_free(&cfg);
+		return -1;
+	}
 	cfg_free(&cfg);
 	return 0;
 }

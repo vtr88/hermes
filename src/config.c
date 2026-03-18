@@ -48,15 +48,37 @@ int cfg_load(hermes_config_t *cfg)
 	cfg->openai_url = envdup("HERMES_OPENAI_URL");
 	if (!cfg->openai_url)
 		cfg->openai_url = dup_default("https://api.openai.com/v1/responses");
+	cfg->openai_system = envdup("HERMES_OPENAI_SYSTEM");
+	if (!cfg->openai_system)
+		cfg->openai_system = dup_default(
+			"You are Hermes, an email coding assistant. "
+			"Reply in plain text, not JSON. "
+			"Be concise, helpful, and practical like a terminal coding assistant.");
 	cfg->imap_url = envdup("HERMES_IMAP_URL");
 	cfg->smtp_url = envdup("HERMES_SMTP_URL");
 	cfg->mail_user = envdup("HERMES_MAIL_USER");
 	cfg->mail_pass = envdup("HERMES_MAIL_PASS");
 	cfg->mail_from = envdup("HERMES_MAIL_FROM");
 	cfg->mail_to = envdup("HERMES_MAIL_TO");
+	cfg->allow_from = envdup("HERMES_ALLOW_FROM");
 	cfg->db_path = envdup("HERMES_DB_PATH");
 	if (!cfg->db_path)
 		cfg->db_path = dup_default("build/hermes.db");
+
+	cfg->max_prompt_chars = 12000;
+	{
+		char *m;
+
+		m = envdup("HERMES_MAX_PROMPT_CHARS");
+		if (m) {
+			int n;
+
+			n = atoi(m);
+			if (n > 1000)
+				cfg->max_prompt_chars = n;
+			free(m);
+		}
+	}
 
 	cfg->poll_seconds = 30;
 	{
@@ -88,12 +110,14 @@ void cfg_free(hermes_config_t *cfg)
 	free(cfg->openai_key);
 	free(cfg->openai_model);
 	free(cfg->openai_url);
+	free(cfg->openai_system);
 	free(cfg->imap_url);
 	free(cfg->smtp_url);
 	free(cfg->mail_user);
 	free(cfg->mail_pass);
 	free(cfg->mail_from);
 	free(cfg->mail_to);
+	free(cfg->allow_from);
 	free(cfg->db_path);
 	memset(cfg, 0, sizeof(*cfg));
 }

@@ -1,84 +1,143 @@
 # hermes
 
-Hermes is a minimalist C daemon intended to bridge email threads to an LLM.
+Hermes is a minimalist C daemon that turns an email thread into an ongoing coding-assistant session.
 
-Current state: functional base with conditional backends.
+You send an email, Hermes reads it over IMAP, asks the LLM, and replies over SMTP in the same thread.
+When you answer again, Hermes continues the conversation context.
 
-- Event loop daemon (`hermesd`)
-- SQLite message store when `sqlite3` dev headers are present
-- OpenAI Responses API client when `libcurl` dev headers are present
-- SMTP reply sender via `libcurl` when configured
-- Safe IMAP NOOP connectivity poll via `libcurl`
+## Goals
+
+- Keep the implementation small, readable, and Unix-first.
+- Run safely as a normal IMAP/SMTP client.
+- Never require changes to Postfix/Dovecot config.
+- Feel like an OpenCode/Codex workflow, but over email.
+
+## Current Features
+
+- C17 daemon (`build/hermesd`) with poll loop.
+- IMAP unseen polling and message fetch (libcurl).
+- SMTP threaded replies (libcurl).
+- OpenAI Responses API call (libcurl).
+- Plain-text assistant extraction from API responses.
+- Basic quoted-reply stripping from incoming emails.
+- Sender allowlist (`HERMES_ALLOW_FROM`).
+- Prompt size clamp (`HERMES_MAX_PROMPT_CHARS`).
+- Message dedupe/session persistence (SQLite, with fallback mode).
+
+## Project Layout
+
+- `src/` runtime source
+- `include/` public headers
+- `tests/` unit tests
+- `ops/` service example
+- `build/` generated artifacts
 
 ## Build
 
-Requirements:
+Required:
 
-- C17 compiler (`cc`)
-- Optional: `libcurl` development headers/library
-- Optional: `sqlite3` development headers/library
+- `cc` (C17)
 
-If optional dependencies are missing, Hermes still builds in fallback mode:
+Recommended:
 
-- without `libcurl`: OpenAI/email use local fallback behavior
-- without `sqlite3`: message ledger uses flat-file fallback
+- `libcurl` dev package
+- `libsqlite3` dev package
 
-Debian/Ubuntu packages:
+Debian/Ubuntu:
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev
 ```
 
-Build debug:
+Commands:
 
 ```sh
-make
+make          # debug build
+make release  # optimized build
+make test     # test suite
+make lint     # static checks (if clang-tidy exists)
 ```
 
-Build release:
+## Quick Start
 
-```sh
-make release
-```
-
-## Run
-
-Create env file and export variables:
+1) Create config file:
 
 ```sh
 cp .env.example .env
+```
+
+2) Edit `.env` with real credentials.
+
+3) Run:
+
+```sh
 set -a; . ./.env; set +a
 make run
 ```
 
-## Tests
+4) Send email to Hermes mailbox, then reply in-thread to continue session.
 
-Run all tests:
+## Environment Variables
+
+Core:
+
+- `HERMES_OPENAI_KEY`
+- `HERMES_OPENAI_MODEL`
+- `HERMES_OPENAI_URL`
+- `HERMES_OPENAI_SYSTEM`
+
+Mail:
+
+- `HERMES_IMAP_URL` (example: `imaps://mail.example.com/INBOX`)
+- `HERMES_SMTP_URL` (example: `smtps://mail.example.com:465`)
+- `HERMES_MAIL_USER`
+- `HERMES_MAIL_PASS`
+- `HERMES_MAIL_FROM`
+- `HERMES_MAIL_TO`
+
+Safety:
+
+- `HERMES_ALLOW_FROM` (comma-separated allowlist)
+- `HERMES_MAX_PROMPT_CHARS` (default: `12000`)
+
+Runtime:
+
+- `HERMES_DB_PATH`
+- `HERMES_POLL_SECONDS`
+
+## Production Notes
+
+- Run under dedicated Unix user `hermes`.
+- Use dedicated mailbox account (recommended).
+- Keep env file private (`chmod 600`).
+- Hermes is client-only: IMAP/SMTP auth, no mail-server config edits.
+
+## systemd
+
+Service template:
+
+- `ops/hermes.service.example`
+
+Typical setup:
 
 ```sh
-make test
+sudo cp ops/hermes.service.example /etc/systemd/system/hermes.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now hermes
+sudo journalctl -u hermes -f
 ```
 
-Run one test:
+## Status and Roadmap
 
-```sh
-make test TEST=test_defaults
-```
+Implemented now:
 
-## Security and Ops
+- end-to-end email -> model -> email loop
+- basic session continuity and dedupe
 
-- Use a dedicated mailbox account for Hermes.
-- Use app-password auth for SMTP/IMAP.
-- Keep `.env` untracked.
-- Run as dedicated user `hermes` when possible.
-- Hermes must act only as mail client; do not modify server mail config.
+Planned next:
 
-Hermes does not require Postfix/Dovecot configuration changes.
-
-## Next Steps
-
-1. Implement IMAP unseen fetch and MIME parsing.
-2. Extract `thread_key` from `In-Reply-To`/`References`.
-3. Store rolling session context and truncation strategy.
-4. Add systemd unit and log rotation.
+- stronger MIME parsing (multipart/plain extraction)
+- richer thread context persistence
+- tighter output formatting for OpenCode-like replies
+- retry/backoff and delivery robustness
