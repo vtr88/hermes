@@ -407,6 +407,86 @@ static int build_exec_reply(const hermes_config_t *cfg, const char *cmd, const c
 	return 0;
 }
 
+static int append_section(char **acc, const char *title, const char *body)
+{
+	int n;
+	char *buf;
+
+	n = snprintf(NULL, 0, "\n%s\n%s\n", title, body ? body : "");
+	if (n < 0)
+		return -1;
+	buf = malloc((size_t)n + 1);
+	if (!buf)
+		return -1;
+	snprintf(buf, (size_t)n + 1, "\n%s\n%s\n", title, body ? body : "");
+	if (append_text(acc, buf) < 0) {
+		free(buf);
+		return -1;
+	}
+	free(buf);
+	return 0;
+}
+
+static int execute_and_format(const hermes_config_t *cfg, const char *cmd, char **reply_out)
+{
+	char *out;
+	char *msg;
+	char *status_out;
+	char *log_out;
+	char *note;
+	int code;
+	int rc;
+
+	out = NULL;
+	msg = NULL;
+	status_out = NULL;
+	log_out = NULL;
+	note = NULL;
+	code = -1;
+
+	rc = run_command_capture(cfg, cmd, &out, &code);
+	if (rc < 0)
+		return -1;
+	rc = build_exec_reply(cfg, cmd, out, code, &msg);
+	free(out);
+	if (rc < 0)
+		return -1;
+
+	if (code == 0)
+		note = xstrdup("Assistant notes:\n- Command finished successfully.\n- I added quick repo context below.");
+	else
+		note = xstrdup("Assistant notes:\n- Command failed.\n- Check output and fix the reported error, then retry.");
+	if (!note || append_section(&msg, "", note) < 0) {
+		free(note);
+		free(msg);
+		return -1;
+	}
+	free(note);
+
+	if (run_command_capture(cfg, "git status --short --branch", &status_out, &code) == 0) {
+		if (append_section(&msg, "Repo status:", status_out) < 0) {
+			free(status_out);
+			free(msg);
+			return -1;
+		}
+		free(status_out);
+	}
+
+	if (contains_ci(cmd, "git commit") || contains_ci(cmd, "git push")) {
+		if (run_command_capture(cfg, "git log -1 --oneline", &log_out, &code) == 0) {
+			if (append_section(&msg, "Latest commit:", log_out) < 0) {
+				free(log_out);
+				free(msg);
+				return -1;
+			}
+			free(log_out);
+		}
+	}
+
+	*reply_out = msg;
+	return 0;
+}
+
 static int build_approval_reply(const char *token, const char *cmd, int destructive, char **reply)
 {
 	char *out;
@@ -501,23 +581,11 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 			return 0;
 		}
 		{
-			char *out;
-			int code;
-
-			out = NULL;
-			code = -1;
-			if (run_command_capture(cfg, cmd, &out, &code) < 0) {
+			if (execute_and_format(cfg, cmd, reply_out) < 0) {
 				free(cmd);
 				free(body);
 				return -1;
 			}
-			if (build_exec_reply(cfg, cmd, out, code, reply_out) < 0) {
-				free(out);
-				free(cmd);
-				free(body);
-				return -1;
-			}
-			free(out);
 		}
 		free(cmd);
 		free(body);
@@ -554,25 +622,12 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 			return -1;
 		}
 		{
-			char *out;
-			int code;
-
-			out = NULL;
-			code = -1;
-			if (run_command_capture(cfg, pending, &out, &code) < 0) {
+			if (execute_and_format(cfg, pending, reply_out) < 0) {
 				free(token);
 				free(pending);
 				free(body);
 				return -1;
 			}
-			if (build_exec_reply(cfg, pending, out, code, reply_out) < 0) {
-				free(out);
-				free(token);
-				free(pending);
-				free(body);
-				return -1;
-			}
-			free(out);
 		}
 		free(token);
 		free(pending);
@@ -627,23 +682,11 @@ skip_approve:
 				return 0;
 			}
 			{
-				char *out;
-				int code;
-
-				out = NULL;
-				code = -1;
-				if (run_command_capture(cfg, cmd, &out, &code) < 0) {
+				if (execute_and_format(cfg, cmd, reply_out) < 0) {
 					free(cmd);
 					free(body);
 					return -1;
 				}
-				if (build_exec_reply(cfg, cmd, out, code, reply_out) < 0) {
-					free(out);
-					free(cmd);
-					free(body);
-					return -1;
-				}
-				free(out);
 			}
 			free(cmd);
 			free(body);
