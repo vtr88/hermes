@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "hermes.h"
 
 #include <signal.h>
@@ -12,8 +14,44 @@
 #include <curl/curl.h>
 #endif
 
+/*
+ * Hermes main runtime flow
+ * ------------------------
+ * 1) Load config from environment (cfg_load).
+ * 2) Open persistence database (db_open).
+ * 3) Poll inbox for messages (email_poll).
+ * 4) For each message:
+ *    - enforce sender allowlist,
+ *    - dedupe by message-id,
+ *    - try tool-command handling first (/run, /approve, natural intents),
+ *    - otherwise call model with thread context,
+ *    - append runtime footer (usage, budget, workdir, changed files),
+ *    - send reply and persist turn.
+ * 5) Sleep and continue until SIGINT/SIGTERM.
+ */
+
 static volatile sig_atomic_t stop_flag;
 
+static int append_text(char **acc, const char *text)
+{
+	char *next;
+	size_t a;
+	size_t n;
+
+	if (!acc || !text)
+		return -1;
+	a = *acc ? strlen(*acc) : 0;
+	n = strlen(text);
+	next = realloc(*acc, a + n + 1);
+	if (!next)
+		return -1;
+	*acc = next;
+	memcpy(*acc + a, text, n);
+	(*acc)[a + n] = '\0';
+	return 0;
+}
+
+/* strdup variant with explicit length. */
 static char *xstrndup(const char *s, size_t n)
 {
 	char *p;
@@ -26,6 +64,7 @@ static char *xstrndup(const char *s, size_t n)
 	return p;
 }
 
+/* Extract plain mailbox address from "Name <user@host>" style header. */
 static char *email_addr_only(const char *from)
 {
 	const char *a;
@@ -40,6 +79,7 @@ static char *email_addr_only(const char *from)
 	return xstrndup(from, strlen(from));
 }
 
+/* Trim leading/trailing ASCII whitespace in-place. */
 static void trim_ascii(char *s)
 {
 	char *e;
@@ -53,6 +93,7 @@ static void trim_ascii(char *s)
 		memmove(s, s + 1, strlen(s));
 }
 
+/* Check if sender is accepted by HERMES_ALLOW_FROM (comma-separated list). */
 static int sender_allowed(const hermes_config_t *cfg, const char *from)
 {
 	char *addr;
@@ -90,6 +131,7 @@ static int sender_allowed(const hermes_config_t *cfg, const char *from)
 	return allowed;
 }
 
+/* Clamp user prompt size to keep per-turn payload bounded. */
 static char *clamped_prompt(const hermes_config_t *cfg, const char *body)
 {
 	char *p;
@@ -106,20 +148,190 @@ static char *clamped_prompt(const hermes_config_t *cfg, const char *body)
 	return p;
 }
 
+/*
+ * Build prompt for model call:
+ * - recent context from same thread (db_thread_context)
+ * - current user message
+ */
+static char *build_turn_prompt(hermes_db_t *db, const hermes_message_t *msg, const char *body)
+{
+	char *ctx;
+	char *prompt;
+	int n;
+
+	ctx = NULL;
+	if (db_thread_context(db, msg->thread_key, 6, &ctx) < 0)
+		return NULL;
+	if (!ctx)
+		ctx = xstrndup("", 0);
+	if (!ctx)
+		return NULL;
+
+	n = snprintf(NULL, 0,
+		"Conversation context from same email thread:\n%s"
+		"Current user message:\n%s\n",
+		ctx,
+		body ? body : "");
+	if (n < 0) {
+		free(ctx);
+		return NULL;
+	}
+	prompt = malloc((size_t)n + 1);
+	if (!prompt) {
+		free(ctx);
+		return NULL;
+	}
+	snprintf(prompt, (size_t)n + 1,
+		"Conversation context from same email thread:\n%s"
+		"Current user message:\n%s\n",
+		ctx,
+		body ? body : "");
+	free(ctx);
+	return prompt;
+}
+
+/*
+ * Snapshot modified files for footer.
+ * Uses git status from configured workdir, capped to 30 lines.
+ */
+static char *capture_modified_files(const hermes_config_t *cfg)
+{
+	char cmd[1024];
+	FILE *p;
+	char line[512];
+	char *out;
+	int shown;
+
+	if (!cfg || !cfg->workdir)
+		return xstrndup("(workdir not set)\n", 18);
+	if (snprintf(cmd, sizeof(cmd), "git -C \"%s\" status --short", cfg->workdir) < 0)
+		return xstrndup("(cannot render command)\n", 24);
+	p = popen(cmd, "r");
+	if (!p)
+		return xstrndup("(git not available)\n", 20);
+	out = NULL;
+	shown = 0;
+	while (fgets(line, sizeof(line), p)) {
+		if (shown >= 30) {
+			append_text(&out, "...\n");
+			break;
+		}
+		append_text(&out, line);
+		shown++;
+	}
+	pclose(p);
+	if (!out)
+		out = xstrndup("(none)\n", 7);
+	return out;
+}
+
+/*
+ * Append a diagnostics footer to every reply.
+ * Includes turn usage, cumulative usage, budget summary and modified files.
+ */
+static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, const char *reply,
+	const hermes_usage_t *turn)
+{
+	hermes_usage_t total;
+	char *files;
+	char *out;
+	char budget[192];
+	int n;
+
+	if (!cfg || !db)
+		return NULL;
+	memset(&total, 0, sizeof(total));
+	if (db_usage_get(db, &total) < 0)
+		memset(&total, 0, sizeof(total));
+	files = capture_modified_files(cfg);
+	if (!files)
+		files = xstrndup("(unknown)\n", 10);
+	if (!files)
+		return NULL;
+
+	if (cfg->budget_usd > 0.0) {
+		double left;
+		double pct;
+
+		left = cfg->budget_usd - total.cost_usd;
+		if (left < 0.0)
+			left = 0.0;
+		pct = (total.cost_usd / cfg->budget_usd) * 100.0;
+		snprintf(budget, sizeof(budget), "spent=$%.4f left=$%.4f used=%.2f%%", total.cost_usd, left, pct);
+	} else {
+		snprintf(budget, sizeof(budget), "spent=$%.4f left=n/a used=n/a", total.cost_usd);
+	}
+
+	n = snprintf(NULL, 0,
+		"%s\n\n---\n"
+		"Context: in=%ld out=%ld total=%ld (this turn)\n"
+		"Cumulative: in=%ld out=%ld total=%ld\n"
+		"Budget: %s\n"
+		"Workdir: %s\n"
+		"Modified files:\n%s",
+		reply ? reply : "",
+		turn ? turn->prompt_tokens : 0,
+		turn ? turn->completion_tokens : 0,
+		turn ? turn->total_tokens : 0,
+		total.prompt_tokens,
+		total.completion_tokens,
+		total.total_tokens,
+		budget,
+		cfg->workdir ? cfg->workdir : "(unset)",
+		files);
+	if (n < 0) {
+		free(files);
+		return NULL;
+	}
+	out = malloc((size_t)n + 1);
+	if (!out) {
+		free(files);
+		return NULL;
+	}
+	snprintf(out, (size_t)n + 1,
+		"%s\n\n---\n"
+		"Context: in=%ld out=%ld total=%ld (this turn)\n"
+		"Cumulative: in=%ld out=%ld total=%ld\n"
+		"Budget: %s\n"
+		"Workdir: %s\n"
+		"Modified files:\n%s",
+		reply ? reply : "",
+		turn ? turn->prompt_tokens : 0,
+		turn ? turn->completion_tokens : 0,
+		turn ? turn->total_tokens : 0,
+		total.prompt_tokens,
+		total.completion_tokens,
+		total.total_tokens,
+		budget,
+		cfg->workdir ? cfg->workdir : "(unset)",
+		files);
+	free(files);
+	return out;
+}
+
+/* Signal handler: set stop flag, loop exits gracefully next iteration. */
 static void on_signal(int sig)
 {
 	(void)sig;
 	stop_flag = 1;
 }
 
+/*
+ * Process one email message.
+ * Tool path is attempted before normal LLM path so command requests are immediate.
+ */
 static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const hermes_message_t *msg)
 {
 	char *prompt;
+	char *final_reply;
 	char *reply;
+	hermes_usage_t usage;
 	int seen;
 
 	prompt = NULL;
+	final_reply = NULL;
 	reply = NULL;
+	memset(&usage, 0, sizeof(usage));
 	seen = 0;
 	if (!sender_allowed(cfg, msg->from)) {
 		fprintf(stderr, "skip: sender not allowlisted: %s\n", msg->from ? msg->from : "(null)");
@@ -129,27 +341,81 @@ static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const her
 		return -1;
 	if (seen)
 		return 0;
+	{
+		int handled;
+
+		handled = 0;
+		if (tool_try_handle(cfg, db, msg, &reply, &handled) < 0)
+			return -1;
+		if (handled) {
+			final_reply = append_metrics_footer(cfg, db, reply ? reply : "", &usage);
+			if (!final_reply)
+				final_reply = xstrndup(reply ? reply : "", strlen(reply ? reply : ""));
+			if (!final_reply) {
+				free(reply);
+				return -1;
+			}
+			if (email_send(cfg, msg, final_reply) < 0) {
+				free(final_reply);
+				free(reply);
+				return -1;
+			}
+			if (db_store_message(db, msg, final_reply) < 0) {
+				free(final_reply);
+				free(reply);
+				return -1;
+			}
+			free(final_reply);
+			free(reply);
+			return 0;
+		}
+	}
 
 	prompt = clamped_prompt(cfg, msg->body);
 	if (!prompt)
 		return -1;
-	if (openai_generate(cfg, prompt, &reply) < 0) {
+	{
+		char *turn_prompt;
+
+		turn_prompt = build_turn_prompt(db, msg, prompt);
 		free(prompt);
-		return -1;
-}
-	free(prompt);
-	if (email_send(cfg, msg, reply) < 0) {
+		if (!turn_prompt)
+			return -1;
+		if (openai_generate(cfg, turn_prompt, &reply) < 0) {
+			free(turn_prompt);
+			return -1;
+		}
+		openai_last_usage(&usage);
+		if (db_usage_add(db, &usage) < 0) {
+			free(turn_prompt);
+			free(reply);
+			return -1;
+		}
+		free(turn_prompt);
+	}
+	final_reply = append_metrics_footer(cfg, db, reply, &usage);
+	if (!final_reply)
+		final_reply = xstrndup(reply ? reply : "", strlen(reply ? reply : ""));
+	if (!final_reply) {
 		free(reply);
 		return -1;
 	}
-	if (db_store_message(db, msg, reply) < 0) {
+	if (email_send(cfg, msg, final_reply) < 0) {
+		free(final_reply);
 		free(reply);
 		return -1;
 	}
+	if (db_store_message(db, msg, final_reply) < 0) {
+		free(final_reply);
+		free(reply);
+		return -1;
+	}
+	free(final_reply);
 	free(reply);
 	return 0;
 }
 
+/* Main polling loop: fetch batch, process, free, sleep, repeat. */
 static void run_loop(const hermes_config_t *cfg, hermes_db_t *db)
 {
 	hermes_message_t *msgs;
@@ -170,6 +436,13 @@ static void run_loop(const hermes_config_t *cfg, hermes_db_t *db)
 
 int main(void)
 {
+	/*
+	 * Top-level orchestration:
+	 * - initialize libraries/signals
+	 * - load config + open db
+	 * - run loop
+	 * - cleanup on stop
+	 */
 	hermes_config_t cfg;
 	hermes_db_t db;
 

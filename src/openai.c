@@ -14,6 +14,8 @@ typedef struct {
 	size_t len;
 } mem_t;
 
+static hermes_usage_t last_usage;
+
 static char *xstrdup(const char *s)
 {
 	char *p;
@@ -155,6 +157,83 @@ static char *json_unescape_quoted(const char *p, const char **endp)
 	return out;
 }
 
+static const char *skip_ws(const char *p)
+{
+	while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
+		p++;
+	return p;
+}
+
+static const char *find_string_field(const char *json, const char *key)
+{
+	char pat[128];
+	const char *p;
+	int n;
+
+	n = snprintf(pat, sizeof(pat), "\"%s\"", key);
+	if (n < 0 || (size_t)n >= sizeof(pat))
+		return NULL;
+	p = json;
+	while ((p = strstr(p, pat)) != NULL) {
+		p += strlen(pat);
+		p = skip_ws(p);
+		if (*p != ':')
+			continue;
+		p++;
+		p = skip_ws(p);
+		if (*p == '"')
+			return p + 1;
+	}
+	return NULL;
+}
+
+static char *extract_any_text_field(const char *json)
+{
+	const char *p;
+
+	if (!json)
+		return NULL;
+	p = json;
+	while ((p = strstr(p, "\"text\"")) != NULL) {
+		const char *v;
+
+		v = p + strlen("\"text\"");
+		v = skip_ws(v);
+		if (*v != ':') {
+			p++;
+			continue;
+		}
+		v++;
+		v = skip_ws(v);
+		if (*v == '"') {
+			char *text;
+
+			text = json_unescape_quoted(v + 1, NULL);
+			if (text && *text)
+				return text;
+			free(text);
+		} else if (*v == '{') {
+			const char *obj_end;
+			const char *value;
+
+			obj_end = strchr(v, '}');
+			if (!obj_end)
+				obj_end = v + strlen(v);
+			value = find_string_field(v, "value");
+			if (value && value < obj_end) {
+				char *text;
+
+				text = json_unescape_quoted(value, NULL);
+				if (text && *text)
+					return text;
+				free(text);
+			}
+		}
+		p++;
+	}
+	return NULL;
+}
+
 static int append_line(char **acc, const char *line)
 {
 	char *next;
@@ -185,8 +264,11 @@ static char *extract_output_text(const char *json)
 		return NULL;
 
 	p = strstr(json, "\"output_text\":\"");
-	if (p) {
+	if (!p)
+		p = find_string_field(json, "output_text");
+	else
 		p += strlen("\"output_text\":\"");
+	if (p) {
 		return json_unescape_quoted(p, NULL);
 	}
 
@@ -196,11 +278,18 @@ static char *extract_output_text(const char *json)
 		const char *t;
 		const char *end;
 		char *line;
+		int from_direct;
 
 		t = strstr(p, "\"text\":\"");
+		from_direct = 1;
+		if (!t)
+			from_direct = 0;
+		if (!t)
+			t = find_string_field(p, "text");
 		if (!t)
 			break;
-		t += strlen("\"text\":\"");
+		if (from_direct)
+			t += strlen("\"text\":\"");
 		line = json_unescape_quoted(t, &end);
 		if (!line) {
 			free(acc);
@@ -218,6 +307,10 @@ static char *extract_output_text(const char *json)
 	if (acc && *acc)
 		return acc;
 	free(acc);
+
+	acc = extract_any_text_field(json);
+	if (acc)
+		return acc;
 	return NULL;
 }
 
@@ -261,12 +354,64 @@ static char *compact_json_hint(const char *json)
 	out[j] = '\0';
 	return out;
 }
+
+static long find_long_field(const char *json, const char *key)
+{
+	char pat[128];
+	const char *p;
+	int n;
+
+	n = snprintf(pat, sizeof(pat), "\"%s\"", key);
+	if (n < 0 || (size_t)n >= sizeof(pat))
+		return 0;
+	p = json;
+	while ((p = strstr(p, pat)) != NULL) {
+		char *endp;
+		long v;
+
+		p += strlen(pat);
+		p = skip_ws(p);
+		if (*p != ':')
+			continue;
+		p++;
+		p = skip_ws(p);
+		v = strtol(p, &endp, 10);
+		if (endp != p)
+			return v;
+	}
+	return 0;
+}
+
+static void parse_usage(const hermes_config_t *cfg, const char *json, hermes_usage_t *u)
+{
+	if (!u)
+		return;
+	memset(u, 0, sizeof(*u));
+	if (!json)
+		return;
+	u->prompt_tokens = find_long_field(json, "prompt_tokens");
+	if (u->prompt_tokens == 0)
+		u->prompt_tokens = find_long_field(json, "input_tokens");
+	u->completion_tokens = find_long_field(json, "completion_tokens");
+	if (u->completion_tokens == 0)
+		u->completion_tokens = find_long_field(json, "output_tokens");
+	u->total_tokens = find_long_field(json, "total_tokens");
+	if (u->total_tokens == 0)
+		u->total_tokens = u->prompt_tokens + u->completion_tokens;
+	if (cfg) {
+		u->cost_usd = ((double)u->prompt_tokens / 1000000.0) * cfg->input_usd_per_mtok +
+			((double)u->completion_tokens / 1000000.0) * cfg->output_usd_per_mtok;
+	}
+}
 #endif
 
 int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply_out)
 {
 	if (!cfg || !cfg->openai_key || !reply_out)
 		return -1;
+#ifdef HERMES_WITH_CURL
+	memset(&last_usage, 0, sizeof(last_usage));
+#endif
 
 #ifdef HERMES_WITH_CURL
 	{
@@ -339,6 +484,7 @@ int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply
 		}
 
 		text = extract_output_text(resp.buf);
+		parse_usage(cfg, resp.buf, &last_usage);
 		if (!text)
 			text = compact_json_hint(resp.buf);
 		free(resp.buf);
@@ -362,5 +508,16 @@ int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply
 		*reply_out = out;
 		return 0;
 	}
+#endif
+}
+
+void openai_last_usage(hermes_usage_t *usage_out)
+{
+	if (!usage_out)
+		return;
+#ifdef HERMES_WITH_CURL
+	*usage_out = last_usage;
+#else
+	memset(usage_out, 0, sizeof(*usage_out));
 #endif
 }

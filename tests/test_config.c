@@ -42,6 +42,10 @@ static int test_defaults(void)
 		cfg_free(&cfg);
 		return -1;
 	}
+	if (!cfg.workdir || cfg.tool_timeout_sec != 30) {
+		cfg_free(&cfg);
+		return -1;
+	}
 	cfg_free(&cfg);
 	return 0;
 }

@@ -1,5 +1,6 @@
 #include "hermes.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -35,6 +36,37 @@ static char *dup_default(const char *value)
 	return xstrdup(value);
 }
 
+static char *derive_workdir_from_mail_user(const char *mail_user)
+{
+	const char *at;
+	char *name;
+	char *path;
+	int n;
+
+	if (!mail_user || !*mail_user)
+		return NULL;
+	at = strchr(mail_user, '@');
+	if (!at || at == mail_user)
+		return NULL;
+	name = xstrdup(mail_user);
+	if (!name)
+		return NULL;
+	name[at - mail_user] = '\0';
+	n = snprintf(NULL, 0, "/home/%s/Projects/%s", name, name);
+	if (n < 0) {
+		free(name);
+		return NULL;
+	}
+	path = malloc((size_t)n + 1);
+	if (!path) {
+		free(name);
+		return NULL;
+	}
+	snprintf(path, (size_t)n + 1, "/home/%s/Projects/%s", name, name);
+	free(name);
+	return path;
+}
+
 int cfg_load(hermes_config_t *cfg)
 {
 	if (!cfg)
@@ -61,6 +93,11 @@ int cfg_load(hermes_config_t *cfg)
 	cfg->mail_from = envdup("HERMES_MAIL_FROM");
 	cfg->mail_to = envdup("HERMES_MAIL_TO");
 	cfg->allow_from = envdup("HERMES_ALLOW_FROM");
+	cfg->workdir = envdup("HERMES_WORKDIR");
+	if (!cfg->workdir)
+		cfg->workdir = derive_workdir_from_mail_user(cfg->mail_user);
+	if (!cfg->workdir)
+		cfg->workdir = dup_default("/srv/hermes");
 	cfg->db_path = envdup("HERMES_DB_PATH");
 	if (!cfg->db_path)
 		cfg->db_path = dup_default("build/hermes.db");
@@ -80,6 +117,21 @@ int cfg_load(hermes_config_t *cfg)
 		}
 	}
 
+	cfg->tool_timeout_sec = 30;
+	{
+		char *t;
+
+		t = envdup("HERMES_TOOL_TIMEOUT_SEC");
+		if (t) {
+			int n;
+
+			n = atoi(t);
+			if (n >= 5 && n <= 600)
+				cfg->tool_timeout_sec = n;
+			free(t);
+		}
+	}
+
 	cfg->poll_seconds = 30;
 	{
 		char *p;
@@ -92,6 +144,39 @@ int cfg_load(hermes_config_t *cfg)
 			if (n > 0)
 				cfg->poll_seconds = n;
 			free(p);
+		}
+	}
+
+	cfg->budget_usd = 0.0;
+	{
+		char *b;
+
+		b = envdup("HERMES_BUDGET_USD");
+		if (b) {
+			cfg->budget_usd = strtod(b, NULL);
+			free(b);
+		}
+	}
+
+	cfg->input_usd_per_mtok = 0.0;
+	{
+		char *v;
+
+		v = envdup("HERMES_INPUT_USD_PER_MTOK");
+		if (v) {
+			cfg->input_usd_per_mtok = strtod(v, NULL);
+			free(v);
+		}
+	}
+
+	cfg->output_usd_per_mtok = 0.0;
+	{
+		char *v;
+
+		v = envdup("HERMES_OUTPUT_USD_PER_MTOK");
+		if (v) {
+			cfg->output_usd_per_mtok = strtod(v, NULL);
+			free(v);
 		}
 	}
 
@@ -118,6 +203,7 @@ void cfg_free(hermes_config_t *cfg)
 	free(cfg->mail_from);
 	free(cfg->mail_to);
 	free(cfg->allow_from);
+	free(cfg->workdir);
 	free(cfg->db_path);
 	memset(cfg, 0, sizeof(*cfg));
 }

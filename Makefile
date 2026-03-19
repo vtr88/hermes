@@ -22,7 +22,8 @@ SRC = \
 	src/config.c \
 	src/db.c \
 	src/openai.c \
-	src/email.c
+	src/email.c \
+	src/tool_exec.c
 
 OBJ = $(SRC:src/%.c=build/%.o)
 BIN = build/hermesd
