@@ -194,6 +194,7 @@ This script:
 - reuses `/home/soth/.ssh/id_ed25519_github` as shared key
 - grants access via `hermesgit` group
 - writes `/home/<user>/.ssh/config` for GitHub
+- seeds `/home/<user>/.ssh/known_hosts` for `github.com`
 - configures repo-local git `user.name`/`user.email`
 - tests SSH auth
 

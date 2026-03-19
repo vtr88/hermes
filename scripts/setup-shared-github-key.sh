@@ -47,7 +47,7 @@ sudo chown root:hermesgit "${SHARED_KEY}" "${SHARED_PUB}"
 sudo chmod 640 "${SHARED_KEY}"
 sudo chmod 644 "${SHARED_PUB}"
 
-printf '%s\n' "[5/8] Writing SSH config for ${PROJECT_USER}"
+printf '%s\n' "[5/9] Writing SSH config for ${PROJECT_USER}"
 sudo -u "${PROJECT_USER}" install -d -m 700 "/home/${PROJECT_USER}/.ssh"
 sudo -u "${PROJECT_USER}" sh -lc "cat > /home/${PROJECT_USER}/.ssh/config <<'EOF'
 Host github.com
@@ -56,15 +56,19 @@ Host github.com
 EOF"
 sudo -u "${PROJECT_USER}" chmod 600 "/home/${PROJECT_USER}/.ssh/config"
 
-printf '%s\n' "[6/8] Configuring repo-local git identity"
+printf '%s\n' "[6/9] Seeding GitHub known_hosts"
+sudo -u "${PROJECT_USER}" sh -lc "ssh-keyscan -H github.com >> /home/${PROJECT_USER}/.ssh/known_hosts"
+sudo -u "${PROJECT_USER}" chmod 600 "/home/${PROJECT_USER}/.ssh/known_hosts"
+
+printf '%s\n' "[7/9] Configuring repo-local git identity"
 sudo -u "${PROJECT_USER}" git -C "${REPO_PATH}" config user.name "${GIT_NAME}"
 sudo -u "${PROJECT_USER}" git -C "${REPO_PATH}" config user.email "${GIT_EMAIL}"
 
-printf '%s\n' "[7/8] Verifying git identity"
+printf '%s\n' "[8/9] Verifying git identity"
 sudo -u "${PROJECT_USER}" git -C "${REPO_PATH}" config --get user.name
 sudo -u "${PROJECT_USER}" git -C "${REPO_PATH}" config --get user.email
 
-printf '%s\n' "[8/8] Testing GitHub SSH auth"
+printf '%s\n' "[9/9] Testing GitHub SSH auth"
 sudo -u "${PROJECT_USER}" ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com || true
 
 printf '%s\n' "Done."
