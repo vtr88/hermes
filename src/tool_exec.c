@@ -47,6 +47,36 @@ static int append_text(char **acc, const char *text)
 	return 0;
 }
 
+static char *shell_quote(const char *s)
+{
+	char *out;
+	char *w;
+	const char *p;
+	size_t cap;
+
+	if (!s)
+		return xstrdup("''");
+	cap = strlen(s) * 4 + 3;
+	out = malloc(cap);
+	if (!out)
+		return NULL;
+	w = out;
+	*w++ = '\'';
+	for (p = s; *p; p++) {
+		if (*p == '\'') {
+			*w++ = '\'';
+			*w++ = '\\';
+			*w++ = '\'';
+			*w++ = '\'';
+		} else {
+			*w++ = *p;
+		}
+	}
+	*w++ = '\'';
+	*w = '\0';
+	return out;
+}
+
 static void sleep_10ms(void)
 {
 	struct timespec ts;
@@ -303,6 +333,9 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 	char **session_id_out, char **reply_out, hermes_usage_t *usage)
 {
 	char cmd[4096];
+	char *q_session;
+	char *q_workdir;
+	char *q_prompt;
 	char *out;
 	int code;
 	int n;
@@ -311,25 +344,51 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 		return -1;
 	*session_id_out = NULL;
 	*reply_out = NULL;
+	q_session = NULL;
+	q_workdir = NULL;
+	q_prompt = NULL;
+
+	q_workdir = shell_quote(cfg->workdir ? cfg->workdir : ".");
+	q_prompt = shell_quote(prompt);
+	if (!q_workdir || !q_prompt) {
+		free(q_workdir);
+		free(q_prompt);
+		return -1;
+	}
 
 	if (session_id && *session_id) {
+		q_session = shell_quote(session_id);
+		if (!q_session) {
+			free(q_workdir);
+			free(q_prompt);
+			return -1;
+		}
 		n = snprintf(cmd, sizeof(cmd),
-			"opencode run --format json --session %s --dir \"%s\" \"%s\"",
-			session_id,
-			cfg->workdir,
-			prompt);
+			"opencode run --format json --session %s --dir %s %s",
+			q_session,
+			q_workdir,
+			q_prompt);
 	} else if (cfg->opencode_session_id && *cfg->opencode_session_id) {
+		q_session = shell_quote(cfg->opencode_session_id);
+		if (!q_session) {
+			free(q_workdir);
+			free(q_prompt);
+			return -1;
+		}
 		n = snprintf(cmd, sizeof(cmd),
-			"opencode run --format json --session %s --dir \"%s\" \"%s\"",
-			cfg->opencode_session_id,
-			cfg->workdir,
-			prompt);
+			"opencode run --format json --session %s --dir %s %s",
+			q_session,
+			q_workdir,
+			q_prompt);
 	} else {
 		n = snprintf(cmd, sizeof(cmd),
-			"opencode run --format json --dir \"%s\" \"%s\"",
-			cfg->workdir,
-			prompt);
+			"opencode run --format json --dir %s %s",
+			q_workdir,
+			q_prompt);
 	}
+	free(q_session);
+	free(q_workdir);
+	free(q_prompt);
 	if (n < 0 || (size_t)n >= sizeof(cmd))
 		return -1;
 
