@@ -57,6 +57,8 @@ int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *toke
 	int *needs_approval_out);
 int db_usage_add(hermes_db_t *db, const hermes_usage_t *usage);
 int db_usage_get(hermes_db_t *db, hermes_usage_t *usage_out);
+int db_session_get(hermes_db_t *db, const char *thread_key, char **session_id_out);
+int db_session_set(hermes_db_t *db, const char *thread_key, const char *session_id);
 
 int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply_out);
 void openai_last_usage(hermes_usage_t *usage_out);

@@ -169,6 +169,19 @@ int db_open(hermes_db_t *db, const char *path)
 			sqlite3_close(sql);
 			return -1;
 		}
+
+		rc = sqlite3_exec(sql,
+			"CREATE TABLE IF NOT EXISTS thread_sessions(" \
+			"thread_key TEXT PRIMARY KEY," \
+			"session_id TEXT NOT NULL DEFAULT ''" \
+			");",
+			NULL, NULL, &err);
+		if (rc != SQLITE_OK) {
+			fprintf(stderr, "db: %s\n", err ? err : "sql error");
+			sqlite3_free(err);
+			sqlite3_close(sql);
+			return -1;
+		}
 		sqlite3_close(sql);
 		return 0;
 	}
@@ -559,6 +572,82 @@ int db_usage_get(hermes_db_t *db, hermes_usage_t *usage_out)
 		sqlite3_finalize(st);
 		sqlite3_close(sql);
 		return 0;
+	}
+#else
+	return 0;
+#endif
+}
+
+int db_session_get(hermes_db_t *db, const char *thread_key, char **session_id_out)
+{
+	if (!db || !thread_key || !session_id_out)
+		return -1;
+	*session_id_out = NULL;
+
+#ifdef HERMES_WITH_SQLITE
+	{
+		int rc;
+		sqlite3 *sql;
+		sqlite3_stmt *st;
+		const char *sid;
+
+		sql = NULL;
+		st = NULL;
+		rc = sqlite3_open(db->path, &sql);
+		if (rc != SQLITE_OK)
+			return -1;
+		rc = sqlite3_prepare_v2(sql,
+			"SELECT session_id FROM thread_sessions WHERE thread_key = ?1 LIMIT 1;",
+			-1, &st, NULL);
+		if (rc != SQLITE_OK) {
+			sqlite3_close(sql);
+			return -1;
+		}
+		sqlite3_bind_text(st, 1, thread_key, -1, SQLITE_STATIC);
+		rc = sqlite3_step(st);
+		if (rc == SQLITE_ROW) {
+			sid = (const char *)sqlite3_column_text(st, 0);
+			if (sid && *sid)
+				*session_id_out = xstrdup(sid);
+		}
+		sqlite3_finalize(st);
+		sqlite3_close(sql);
+		return 0;
+	}
+#else
+	return 0;
+#endif
+}
+
+int db_session_set(hermes_db_t *db, const char *thread_key, const char *session_id)
+{
+	if (!db || !thread_key || !session_id)
+		return -1;
+
+#ifdef HERMES_WITH_SQLITE
+	{
+		int rc;
+		sqlite3 *sql;
+		sqlite3_stmt *st;
+
+		sql = NULL;
+		st = NULL;
+		rc = sqlite3_open(db->path, &sql);
+		if (rc != SQLITE_OK)
+			return -1;
+		rc = sqlite3_prepare_v2(sql,
+			"INSERT OR REPLACE INTO thread_sessions(thread_key, session_id) VALUES(?1, ?2);",
+			-1, &st, NULL);
+		if (rc != SQLITE_OK) {
+			sqlite3_close(sql);
+			return -1;
+		}
+		sqlite3_bind_text(st, 1, thread_key, -1, SQLITE_STATIC);
+		sqlite3_bind_text(st, 2, session_id, -1, SQLITE_STATIC);
+		rc = sqlite3_step(st);
+		sqlite3_finalize(st);
+		sqlite3_close(sql);
+		return rc == SQLITE_DONE ? 0 : -1;
 	}
 #else
 	return 0;
