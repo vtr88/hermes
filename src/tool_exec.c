@@ -168,6 +168,10 @@ static int natural_command_from_text(const char *body, char **command_out)
 		*command_out = cmd;
 		return 1;
 	}
+	if (wants_push) {
+		*command_out = xstrdup("git push origin main");
+		return *command_out ? 1 : -1;
+	}
 
 	if (contains_ci(body, "list files")) {
 		*command_out = xstrdup("ls -la");
@@ -191,9 +195,9 @@ static int contains_any(const char *s, const char **bad, size_t n)
 static int requires_approval_command(const char *cmd)
 {
 	const char *risk[] = {
-		" rm ", "rm ", "mv /", "mkfs", "reboot", "shutdown", "userdel", "passwd ",
+		" rm ", "rm ", "mkfs", "reboot", "shutdown", "userdel", "passwd ",
 		"systemctl ", "service ", "apt ", "apt-get ", "dnf ", "yum ", "pacman ",
-		"git push", "git reset --hard", "git clean -fd", "git push --force", "chmod /", "chown /"
+		"git reset --hard", "git clean -fd", "git push --force", "chmod /", "chown /"
 	};
 	char *s;
 	int hit;
@@ -816,15 +820,6 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 
 skip_approve:
 
-	if (handle_agent_mode(cfg, db, msg, reply_out, handled_out) < 0) {
-		free(body);
-		return -1;
-	}
-	if (*handled_out) {
-		free(body);
-		return 0;
-	}
-
 	{
 		int m;
 
@@ -876,6 +871,15 @@ skip_approve:
 			free(body);
 			return 0;
 		}
+	}
+
+	if (handle_agent_mode(cfg, db, msg, reply_out, handled_out) < 0) {
+		free(body);
+		return -1;
+	}
+	if (*handled_out) {
+		free(body);
+		return 0;
 	}
 
 	free(body);
