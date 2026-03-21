@@ -129,16 +129,15 @@ static int contains_ci(const char *haystack, const char *needle)
 	return ok;
 }
 
-static int natural_command_from_text(const char *body, char **command_out, int *force_approval_out)
+static int natural_command_from_text(const char *body, char **command_out)
 {
 	char *cmd;
 	int wants_commit;
 	int wants_push;
 
-	if (!body || !command_out || !force_approval_out)
+	if (!body || !command_out)
 		return -1;
 	*command_out = NULL;
-	*force_approval_out = 0;
 
 	if (contains_ci(body, "git status") || (contains_ci(body, "status") && contains_ci(body, "git"))) {
 		*command_out = xstrdup("git status --short --branch");
@@ -167,7 +166,6 @@ static int natural_command_from_text(const char *body, char **command_out, int *
 		if (!cmd)
 			return -1;
 		*command_out = cmd;
-		*force_approval_out = 1;
 		return 1;
 	}
 
@@ -190,60 +188,22 @@ static int contains_any(const char *s, const char **bad, size_t n)
 	return 0;
 }
 
-static int is_destructive_command(const char *cmd)
+static int requires_approval_command(const char *cmd)
 {
-	const char *bad[] = {
-		" rm ", "rm -", " mv ", " cp ", " truncate ", " dd ", "chmod ", "chown ",
-		"git reset", "git clean", "git checkout", "git push --force", "mkfs", "reboot",
-		"shutdown", "userdel", "passwd ", "apt-get remove", "apt remove", "systemctl "
+	const char *risk[] = {
+		" rm ", "rm ", "mv /", "mkfs", "reboot", "shutdown", "userdel", "passwd ",
+		"systemctl ", "service ", "apt ", "apt-get ", "dnf ", "yum ", "pacman ",
+		"git push", "git reset --hard", "git clean -fd", "git push --force", "chmod /", "chown /"
 	};
 	char *s;
 	int hit;
 
-	s = NULL;
-	hit = 0;
 	s = trimdup(cmd);
 	if (!s)
 		return 1;
-	if (starts_with(s, "rm ") || starts_with(s, "mv ") || starts_with(s, "cp "))
-		hit = 1;
-	if (!hit && contains_any(s, bad, sizeof(bad) / sizeof(bad[0])))
-		hit = 1;
+	hit = contains_any(s, risk, sizeof(risk) / sizeof(risk[0]));
 	free(s);
 	return hit;
-}
-
-static int is_read_only_command(const char *cmd)
-{
-	const char *safe_prefix[] = {
-		"ls", "pwd", "git status", "git diff", "git log", "cat ", "grep ", "rg ",
-		"find ", "wc ", "stat ", "make test", "make lint", "./build/test_config"
-	};
-	const char *shell_ops[] = {";", "&&", "||", "|", ">", "<"};
-	char *s;
-	size_t i;
-	int ok;
-
-	s = trimdup(cmd);
-	if (!s)
-		return 0;
-	if (*s == '\0') {
-		free(s);
-		return 0;
-	}
-	if (contains_any(s, shell_ops, sizeof(shell_ops) / sizeof(shell_ops[0]))) {
-		free(s);
-		return 0;
-	}
-	ok = 0;
-	for (i = 0; i < sizeof(safe_prefix) / sizeof(safe_prefix[0]); i++) {
-		if (starts_with(s, safe_prefix[i])) {
-			ok = 1;
-			break;
-		}
-	}
-	free(s);
-	return ok;
 }
 
 static char *token_generate(void)
@@ -521,6 +481,227 @@ static int build_approval_reply(const char *token, const char *cmd, int destruct
 	return 0;
 }
 
+static char *extract_tag_block(const char *text, const char *tag)
+{
+	char open[64];
+	char close[64];
+	const char *a;
+	const char *b;
+	char *out;
+	int n;
+
+	if (!text || !tag)
+		return NULL;
+	n = snprintf(open, sizeof(open), "<%s>", tag);
+	if (n < 0 || (size_t)n >= sizeof(open))
+		return NULL;
+	n = snprintf(close, sizeof(close), "</%s>", tag);
+	if (n < 0 || (size_t)n >= sizeof(close))
+		return NULL;
+	a = strstr(text, open);
+	if (!a)
+		return NULL;
+	a += strlen(open);
+	b = strstr(a, close);
+	if (!b || b <= a)
+		return NULL;
+	out = malloc((size_t)(b - a) + 1);
+	if (!out)
+		return NULL;
+	memcpy(out, a, (size_t)(b - a));
+	out[b - a] = '\0';
+	return trimdup(out);
+}
+
+static char *extract_run_command(const char *model_reply)
+{
+	char *blk;
+	char *line;
+	char *cmd;
+
+	blk = extract_tag_block(model_reply, "run");
+	if (!blk)
+		return NULL;
+	line = strtok(blk, "\n");
+	while (line) {
+		if (starts_with(line, "command:")) {
+			cmd = trimdup(line + 8);
+			free(blk);
+			return cmd;
+		}
+		line = strtok(NULL, "\n");
+	}
+	free(blk);
+	return NULL;
+}
+
+static char *build_agent_prompt(const char *history)
+{
+	const char *sys;
+	int n;
+	char *out;
+
+	sys =
+		"You are Hermes, an email coding agent that should behave like a CLI coding assistant.\n"
+		"Decide the next best step and either run one shell command or provide a final answer.\n"
+		"When you need a command, reply ONLY with:\n"
+		"<run>\n"
+		"command: <single shell command>\n"
+		"</run>\n"
+		"When done, reply ONLY with:\n"
+		"<final>\n"
+		"<assistant response in plain text>\n"
+		"</final>\n"
+		"Use concise teammate tone and be explicit about results.\n";
+	n = snprintf(NULL, 0, "%s\nSession context:\n%s", sys, history ? history : "");
+	if (n < 0)
+		return NULL;
+	out = malloc((size_t)n + 1);
+	if (!out)
+		return NULL;
+	snprintf(out, (size_t)n + 1, "%s\nSession context:\n%s", sys, history ? history : "");
+	return out;
+}
+
+static int append_agent_event(char **history, const char *title, const char *body)
+{
+	char *chunk;
+	int n;
+
+	n = snprintf(NULL, 0, "%s\n%s\n\n", title, body ? body : "");
+	if (n < 0)
+		return -1;
+	chunk = malloc((size_t)n + 1);
+	if (!chunk)
+		return -1;
+	snprintf(chunk, (size_t)n + 1, "%s\n%s\n\n", title, body ? body : "");
+	if (append_text(history, chunk) < 0) {
+		free(chunk);
+		return -1;
+	}
+	free(chunk);
+	return 0;
+}
+
+static int handle_agent_mode(const hermes_config_t *cfg, hermes_db_t *db, const hermes_message_t *msg,
+	char **reply_out, int *handled_out)
+{
+	char *history;
+	int step;
+
+	if (!cfg || !db || !msg || !reply_out || !handled_out)
+		return -1;
+	history = NULL;
+	if (append_agent_event(&history, "User", msg->body ? msg->body : "") < 0)
+		return -1;
+
+	for (step = 0; step < 4; step++) {
+		char *prompt;
+		char *model;
+		char *cmd;
+
+		prompt = build_agent_prompt(history);
+		if (!prompt) {
+			free(history);
+			return -1;
+		}
+		model = NULL;
+		if (openai_generate(cfg, prompt, &model) < 0) {
+			free(prompt);
+			free(history);
+			return -1;
+		}
+		free(prompt);
+
+		cmd = extract_run_command(model);
+		if (cmd) {
+			int needs_approval;
+
+			needs_approval = requires_approval_command(cmd);
+			if (needs_approval) {
+				char *token;
+				char *approval;
+
+				token = token_generate();
+				if (!token) {
+					free(cmd);
+					free(model);
+					free(history);
+					return -1;
+				}
+				if (db_pending_create(db, msg->thread_key, token, cmd, 1) < 0) {
+					free(token);
+					free(cmd);
+					free(model);
+					free(history);
+					return -1;
+				}
+				approval = NULL;
+				if (build_approval_reply(token, cmd, 1, &approval) < 0) {
+					free(token);
+					free(cmd);
+					free(model);
+					free(history);
+					return -1;
+				}
+				*reply_out = approval;
+				*handled_out = 1;
+				free(token);
+				free(cmd);
+				free(model);
+				free(history);
+				return 0;
+			}
+
+			{
+				char *exec_reply;
+
+				exec_reply = NULL;
+				if (execute_and_format(cfg, cmd, &exec_reply) < 0) {
+					free(cmd);
+					free(model);
+					free(history);
+					return -1;
+				}
+				if (append_agent_event(&history, "Tool command", cmd) < 0 ||
+					append_agent_event(&history, "Tool result", exec_reply) < 0) {
+					free(exec_reply);
+					free(cmd);
+					free(model);
+					free(history);
+					return -1;
+				}
+				free(exec_reply);
+			}
+			free(cmd);
+			free(model);
+			continue;
+		}
+
+		{
+			char *final;
+
+			final = extract_tag_block(model, "final");
+			if (!final)
+				final = trimdup(model);
+			free(model);
+			if (!final) {
+				free(history);
+				return -1;
+			}
+			*reply_out = final;
+			*handled_out = 1;
+			free(history);
+			return 0;
+		}
+	}
+
+	*reply_out = xstrdup("I could not complete all steps safely in one pass. Please refine the request.");
+	*handled_out = 1;
+	free(history);
+	return *reply_out ? 0 : -1;
+}
+
 int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_message_t *msg,
 	char **reply_out, int *handled_out)
 {
@@ -543,18 +724,16 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	}
 
 	if (starts_with(line, "/run ")) {
-		int destructive;
-		int readonly;
+		int needs_approval;
 
 		cmd = trimdup(line + 5);
 		if (!cmd) {
 			free(body);
 			return -1;
 		}
-		destructive = is_destructive_command(cmd);
-		readonly = is_read_only_command(cmd);
+		needs_approval = requires_approval_command(cmd);
 		*handled_out = 1;
-		if (!readonly || destructive) {
+		if (needs_approval) {
 			char *token;
 
 			token = token_generate();
@@ -569,7 +748,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 				free(body);
 				return -1;
 			}
-			if (build_approval_reply(token, cmd, destructive, reply_out) < 0) {
+			if (build_approval_reply(token, cmd, 1, reply_out) < 0) {
 				free(token);
 				free(cmd);
 				free(body);
@@ -637,25 +816,30 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 
 skip_approve:
 
+	if (handle_agent_mode(cfg, db, msg, reply_out, handled_out) < 0) {
+		free(body);
+		return -1;
+	}
+	if (*handled_out) {
+		free(body);
+		return 0;
+	}
+
 	{
-		int force_approval;
 		int m;
 
 		cmd = NULL;
-		force_approval = 0;
-		m = natural_command_from_text(msg->body ? msg->body : "", &cmd, &force_approval);
+		m = natural_command_from_text(msg->body ? msg->body : "", &cmd);
 		if (m < 0) {
 			free(body);
 			return -1;
 		}
 		if (m == 1 && cmd) {
-			int destructive;
-			int readonly;
+			int needs_approval;
 
-			destructive = is_destructive_command(cmd);
-			readonly = is_read_only_command(cmd);
+			needs_approval = requires_approval_command(cmd);
 			*handled_out = 1;
-			if (force_approval || !readonly || destructive) {
+			if (needs_approval) {
 				char *token;
 
 				token = token_generate();
@@ -670,7 +854,7 @@ skip_approve:
 					free(body);
 					return -1;
 				}
-				if (build_approval_reply(token, cmd, destructive, reply_out) < 0) {
+				if (build_approval_reply(token, cmd, 1, reply_out) < 0) {
 					free(token);
 					free(cmd);
 					free(body);
