@@ -10,13 +10,13 @@ set -eu
 # Usage:
 #   ./scripts/hermes-redeploy.sh [project-user] [service-name] [git-name] [git-email]
 # Example:
-#   ./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "contato@vitor.win"
+#   ./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "vtr88@yahoo.com.br"
 
 PROJECT_USER="${1:-hermes}"
 SERVICE_NAME="${2:-hermes}"
 PROJECT_DIR="/home/${PROJECT_USER}/Projects/${PROJECT_USER}"
 GIT_NAME="${3:-Vitor Hugo}"
-GIT_EMAIL="${4:-contato@vitor.win}"
+GIT_EMAIL="${4:-vtr88@yahoo.com.br}"
 
 printf '%s\n' "[1/6] Stopping service: ${SERVICE_NAME}"
 sudo systemctl stop "${SERVICE_NAME}" || true

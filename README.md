@@ -195,7 +195,7 @@ Custom form:
 Example:
 
 ```sh
-./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "contato@vitor.win"
+./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "vtr88@yahoo.com.br"
 ```
 
 ## First Email to Start Session
