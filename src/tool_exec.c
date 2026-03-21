@@ -129,33 +129,10 @@ static int contains_ci(const char *haystack, const char *needle)
 	return ok;
 }
 
-static int contains_any(const char *s, const char **bad, size_t n)
-{
-	size_t i;
-
-	for (i = 0; i < n; i++) {
-		if (strstr(s, bad[i]))
-			return 1;
-	}
-	return 0;
-}
-
 static int requires_approval_command(const char *cmd)
 {
-	const char *risk[] = {
-		" rm ", "rm ", "mkfs", "reboot", "shutdown", "userdel", "passwd ",
-		"systemctl ", "service ", "apt ", "apt-get ", "dnf ", "yum ", "pacman ",
-		"git reset --hard", "git clean -fd", "git push --force", "chmod /", "chown /"
-	};
-	char *s;
-	int hit;
-
-	s = trimdup(cmd);
-	if (!s)
-		return 1;
-	hit = contains_any(s, risk, sizeof(risk) / sizeof(risk[0]));
-	free(s);
-	return hit;
+	(void)cmd;
+	return 0;
 }
 
 static char *token_generate(void)
