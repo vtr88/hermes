@@ -129,58 +129,6 @@ static int contains_ci(const char *haystack, const char *needle)
 	return ok;
 }
 
-static int natural_command_from_text(const char *body, char **command_out)
-{
-	char *cmd;
-	int wants_commit;
-	int wants_push;
-
-	if (!body || !command_out)
-		return -1;
-	*command_out = NULL;
-
-	if (contains_ci(body, "git status") || (contains_ci(body, "status") && contains_ci(body, "git"))) {
-		*command_out = xstrdup("git status --short --branch");
-		return *command_out ? 1 : -1;
-	}
-	if (contains_ci(body, "git diff") || (contains_ci(body, "diff") && contains_ci(body, "git"))) {
-		*command_out = xstrdup("git diff");
-		return *command_out ? 1 : -1;
-	}
-	if (contains_ci(body, "run tests") || contains_ci(body, "make test") || contains_ci(body, "test suite")) {
-		*command_out = xstrdup("make test");
-		return *command_out ? 1 : -1;
-	}
-	if (contains_ci(body, "build") && contains_ci(body, "make")) {
-		*command_out = xstrdup("make");
-		return *command_out ? 1 : -1;
-	}
-
-	wants_commit = contains_ci(body, "commit");
-	wants_push = contains_ci(body, "push") || contains_ci(body, "github");
-	if (wants_commit) {
-		if (wants_push)
-			cmd = xstrdup("git add -A && git commit -m \"chore: update project changes\" && git push origin main");
-		else
-			cmd = xstrdup("git add -A && git commit -m \"chore: update project changes\"");
-		if (!cmd)
-			return -1;
-		*command_out = cmd;
-		return 1;
-	}
-	if (wants_push) {
-		*command_out = xstrdup("git push origin main");
-		return *command_out ? 1 : -1;
-	}
-
-	if (contains_ci(body, "list files")) {
-		*command_out = xstrdup("ls -la");
-		return *command_out ? 1 : -1;
-	}
-
-	return 0;
-}
-
 static int contains_any(const char *s, const char **bad, size_t n)
 {
 	size_t i;
@@ -548,6 +496,9 @@ static char *build_agent_prompt(const char *history)
 	sys =
 		"You are Hermes, an email coding agent that should behave like a CLI coding assistant.\n"
 		"Decide the next best step and either run one shell command or provide a final answer.\n"
+		"You DO have access to local shell and repository through the <run> command path.\n"
+		"Never say you cannot access files, git, or local repo.\n"
+		"If the user asks for any project change, tests, commit, or push, produce <run> steps.\n"
 		"When you need a command, reply ONLY with:\n"
 		"<run>\n"
 		"command: <single shell command>\n"
@@ -711,7 +662,6 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 {
 	char *body;
 	char *line;
-	char *cmd;
 
 	if (!cfg || !db || !msg || !reply_out || !handled_out)
 		return -1;
@@ -723,54 +673,6 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 
 	line = strtok(body, "\n");
 	if (!line) {
-		free(body);
-		return 0;
-	}
-
-	if (starts_with(line, "/run ")) {
-		int needs_approval;
-
-		cmd = trimdup(line + 5);
-		if (!cmd) {
-			free(body);
-			return -1;
-		}
-		needs_approval = requires_approval_command(cmd);
-		*handled_out = 1;
-		if (needs_approval) {
-			char *token;
-
-			token = token_generate();
-			if (!token) {
-				free(cmd);
-				free(body);
-				return -1;
-			}
-			if (db_pending_create(db, msg->thread_key, token, cmd, 1) < 0) {
-				free(token);
-				free(cmd);
-				free(body);
-				return -1;
-			}
-			if (build_approval_reply(token, cmd, 1, reply_out) < 0) {
-				free(token);
-				free(cmd);
-				free(body);
-				return -1;
-			}
-			free(token);
-			free(cmd);
-			free(body);
-			return 0;
-		}
-		{
-			if (execute_and_format(cfg, cmd, reply_out) < 0) {
-				free(cmd);
-				free(body);
-				return -1;
-			}
-		}
-		free(cmd);
 		free(body);
 		return 0;
 	}
@@ -819,59 +721,6 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	}
 
 skip_approve:
-
-	{
-		int m;
-
-		cmd = NULL;
-		m = natural_command_from_text(msg->body ? msg->body : "", &cmd);
-		if (m < 0) {
-			free(body);
-			return -1;
-		}
-		if (m == 1 && cmd) {
-			int needs_approval;
-
-			needs_approval = requires_approval_command(cmd);
-			*handled_out = 1;
-			if (needs_approval) {
-				char *token;
-
-				token = token_generate();
-				if (!token) {
-					free(cmd);
-					free(body);
-					return -1;
-				}
-				if (db_pending_create(db, msg->thread_key, token, cmd, 1) < 0) {
-					free(token);
-					free(cmd);
-					free(body);
-					return -1;
-				}
-				if (build_approval_reply(token, cmd, 1, reply_out) < 0) {
-					free(token);
-					free(cmd);
-					free(body);
-					return -1;
-				}
-				free(token);
-				free(cmd);
-				free(body);
-				return 0;
-			}
-			{
-				if (execute_and_format(cfg, cmd, reply_out) < 0) {
-					free(cmd);
-					free(body);
-					return -1;
-				}
-			}
-			free(cmd);
-			free(body);
-			return 0;
-		}
-	}
 
 	if (handle_agent_mode(cfg, db, msg, reply_out, handled_out) < 0) {
 		free(body);

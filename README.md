@@ -1,50 +1,29 @@
 # hermes
 
-Hermes is a minimalist C daemon that lets you run an OpenCode-like coding workflow over email.
+Hermes is a minimalist C daemon that runs an OpenCode-like agent session through email.
 
-You send an email, Hermes reads it via IMAP, decides whether it is a chat request or actionable command,
-executes safely inside the project workdir when needed, and replies in the same thread via SMTP.
+You send a normal email message, Hermes reads it via IMAP, treats it as the next user turn,
+runs agent steps inside the project workdir, and replies in the same thread via SMTP.
 
 ## What Hermes Does
 
-- Ongoing thread context per email conversation.
-- Natural-language coding requests (for common intents) and explicit command mode.
-- Approval-token flow for write/destructive operations.
+- Ongoing conversational session from normal email messages.
+- Agentic multi-step execution (plan, run command, inspect, continue, respond).
+- Approval-token flow only when a risky command is required.
 - Response footer with execution/usage context and modified files.
 - Runs as plain IMAP/SMTP client (no Postfix/Dovecot config edits required).
 
-## Command Modes
+## Interaction Model
 
-### 1) Natural language mode
+- Send plain language requests, exactly like talking to a coding assistant.
+- Hermes keeps the session and continues from previous turns.
+- If a command needs approval, Hermes emails a token.
+- Reply with either `approve <token>` or `/approve <token>`.
 
-Examples:
+Example messages:
 
-- `please check git status`
-- `run tests`
-- `please commit to github`
-
-Hermes maps known intents to safe command flows. For risky actions it asks for approval.
-
-### 2) Explicit mode
-
-- `/run <command>`
-- `/approve <token>`
-
-Examples:
-
-```text
-/run git status
-```
-
-```text
-/run git add -A && git commit -m "msg" && git push origin main
-```
-
-If approval is required, Hermes replies with a token. Confirm with:
-
-```text
-/approve 1a2b3c4d5e6f
-```
+- `Read SESSION_HANDOFF.md and summarize where we are.`
+- `Add line EOF under What Hermes Does in README and push to github.`
 
 ## Workdir Convention
 

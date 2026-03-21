@@ -23,8 +23,8 @@
  * 4) For each message:
  *    - enforce sender allowlist,
  *    - dedupe by message-id,
- *    - try tool-command handling first (/run, /approve, natural intents),
- *    - otherwise call model with thread context,
+ *    - route into agent session execution,
+ *    - request approval by token only when needed,
  *    - append runtime footer (usage, budget, workdir, changed files),
  *    - send reply and persist turn.
  * 5) Sleep and continue until SIGINT/SIGTERM.
