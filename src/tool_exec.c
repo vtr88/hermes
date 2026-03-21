@@ -47,36 +47,6 @@ static int append_text(char **acc, const char *text)
 	return 0;
 }
 
-static char *shell_quote(const char *s)
-{
-	char *out;
-	char *w;
-	const char *p;
-	size_t cap;
-
-	if (!s)
-		return xstrdup("''");
-	cap = strlen(s) * 4 + 3;
-	out = malloc(cap);
-	if (!out)
-		return NULL;
-	w = out;
-	*w++ = '\'';
-	for (p = s; *p; p++) {
-		if (*p == '\'') {
-			*w++ = '\'';
-			*w++ = '\\';
-			*w++ = '\'';
-			*w++ = '\'';
-		} else {
-			*w++ = *p;
-		}
-	}
-	*w++ = '\'';
-	*w = '\0';
-	return out;
-}
-
 static void sleep_10ms(void)
 {
 	struct timespec ts;
@@ -86,7 +56,8 @@ static void sleep_10ms(void)
 	nanosleep(&ts, NULL);
 }
 
-static int run_command_capture(const hermes_config_t *cfg, const char *cmd, char **out, int *exit_code)
+static int run_opencode_capture(const hermes_config_t *cfg, const char *session_id, const char *prompt,
+	char **out, int *exit_code)
 {
 	int p[2];
 	pid_t pid;
@@ -98,7 +69,7 @@ static int run_command_capture(const hermes_config_t *cfg, const char *cmd, char
 	int n;
 	int child_done;
 
-	if (!cfg || !cmd || !out || !exit_code)
+	if (!cfg || !prompt || !out || !exit_code)
 		return -1;
 	*out = NULL;
 	*exit_code = -1;
@@ -120,7 +91,13 @@ static int run_command_capture(const hermes_config_t *cfg, const char *cmd, char
 		dup2(p[1], STDERR_FILENO);
 		close(p[0]);
 		close(p[1]);
-		execl("/bin/sh", "sh", "-lc", cmd, (char *)NULL);
+		if (session_id && *session_id) {
+			execlp("opencode", "opencode", "run", "--format", "json", "--session", session_id,
+				"--dir", cfg->workdir ? cfg->workdir : ".", prompt, (char *)NULL);
+		} else {
+			execlp("opencode", "opencode", "run", "--format", "json", "--dir",
+				cfg->workdir ? cfg->workdir : ".", prompt, (char *)NULL);
+		}
 		_exit(127);
 	}
 
@@ -168,7 +145,7 @@ static int run_command_capture(const hermes_config_t *cfg, const char *cmd, char
 
 	close(p[0]);
 	if (timed_out)
-		append_text(&acc, "\n[hermes] command timed out\n");
+		append_text(&acc, "\n[hermes] opencode timed out\n");
 	if (!acc)
 		acc = xstrdup("(no output)\n");
 	if (!acc)
@@ -332,69 +309,23 @@ static int parse_opencode_json(const char *json, char **session_id_out, char **t
 static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id, const char *prompt,
 	char **session_id_out, char **reply_out, hermes_usage_t *usage)
 {
-	char cmd[4096];
-	char *q_session;
-	char *q_workdir;
-	char *q_prompt;
 	char *out;
 	int code;
-	int n;
+	const char *sid;
 
 	if (!cfg || !prompt || !session_id_out || !reply_out || !usage)
 		return -1;
 	*session_id_out = NULL;
 	*reply_out = NULL;
-	q_session = NULL;
-	q_workdir = NULL;
-	q_prompt = NULL;
-
-	q_workdir = shell_quote(cfg->workdir ? cfg->workdir : ".");
-	q_prompt = shell_quote(prompt);
-	if (!q_workdir || !q_prompt) {
-		free(q_workdir);
-		free(q_prompt);
-		return -1;
-	}
-
-	if (session_id && *session_id) {
-		q_session = shell_quote(session_id);
-		if (!q_session) {
-			free(q_workdir);
-			free(q_prompt);
-			return -1;
-		}
-		n = snprintf(cmd, sizeof(cmd),
-			"opencode run --format json --session %s --dir %s %s",
-			q_session,
-			q_workdir,
-			q_prompt);
-	} else if (cfg->opencode_session_id && *cfg->opencode_session_id) {
-		q_session = shell_quote(cfg->opencode_session_id);
-		if (!q_session) {
-			free(q_workdir);
-			free(q_prompt);
-			return -1;
-		}
-		n = snprintf(cmd, sizeof(cmd),
-			"opencode run --format json --session %s --dir %s %s",
-			q_session,
-			q_workdir,
-			q_prompt);
-	} else {
-		n = snprintf(cmd, sizeof(cmd),
-			"opencode run --format json --dir %s %s",
-			q_workdir,
-			q_prompt);
-	}
-	free(q_session);
-	free(q_workdir);
-	free(q_prompt);
-	if (n < 0 || (size_t)n >= sizeof(cmd))
-		return -1;
+	sid = NULL;
+	if (session_id && *session_id)
+		sid = session_id;
+	else if (cfg->opencode_session_id && *cfg->opencode_session_id)
+		sid = cfg->opencode_session_id;
 
 	out = NULL;
 	code = -1;
-	if (run_command_capture(cfg, cmd, &out, &code) < 0)
+	if (run_opencode_capture(cfg, sid, prompt, &out, &code) < 0)
 		return -1;
 	if (code != 0) {
 		*reply_out = out;
