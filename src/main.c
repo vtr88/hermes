@@ -225,6 +225,37 @@ static char *capture_modified_files(const hermes_config_t *cfg)
 	return out;
 }
 
+static char *capture_opencode_stats(const hermes_config_t *cfg)
+{
+	char cmd[1024];
+	FILE *p;
+	char line[512];
+	char *out;
+	int shown;
+
+	if (!cfg || !cfg->workdir)
+		return xstrndup("(workdir not set)\n", 18);
+	if (snprintf(cmd, sizeof(cmd), "cd \"%s\" && opencode stats 2>/dev/null", cfg->workdir) < 0)
+		return xstrndup("(cannot render command)\n", 24);
+	p = popen(cmd, "r");
+	if (!p)
+		return xstrndup("(opencode stats unavailable)\n", 28);
+	out = NULL;
+	shown = 0;
+	while (fgets(line, sizeof(line), p)) {
+		if (shown >= 80) {
+			append_text(&out, "...\n");
+			break;
+		}
+		append_text(&out, line);
+		shown++;
+	}
+	pclose(p);
+	if (!out)
+		out = xstrndup("(no stats output)\n", 18);
+	return out;
+}
+
 /*
  * Append a diagnostics footer to every reply.
  * Includes turn usage, cumulative usage, budget summary and modified files.
@@ -234,6 +265,7 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 {
 	hermes_usage_t total;
 	char *files;
+	char *stats;
 	char *out;
 	char budget[192];
 	int n;
@@ -248,6 +280,13 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 		files = xstrndup("(unknown)\n", 10);
 	if (!files)
 		return NULL;
+	stats = capture_opencode_stats(cfg);
+	if (!stats)
+		stats = xstrndup("(stats unavailable)\n", 20);
+	if (!stats) {
+		free(files);
+		return NULL;
+	}
 
 	if (cfg->budget_usd > 0.0) {
 		double left;
@@ -262,13 +301,14 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 		snprintf(budget, sizeof(budget), "spent=$%.4f left=n/a used=n/a", total.cost_usd);
 	}
 
-	n = snprintf(NULL, 0,
+		n = snprintf(NULL, 0,
 		"%s\n\n---\n"
 		"Context: in=%ld out=%ld total=%ld (this turn)\n"
 		"Cumulative: in=%ld out=%ld total=%ld\n"
 		"Budget: %s\n"
 		"Workdir: %s\n"
-		"Modified files:\n%s",
+		"Modified files:\n%s\n"
+		"OpenCode stats:\n%s",
 		reply ? reply : "",
 		turn ? turn->prompt_tokens : 0,
 		turn ? turn->completion_tokens : 0,
@@ -278,14 +318,17 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 		total.total_tokens,
 		budget,
 		cfg->workdir ? cfg->workdir : "(unset)",
-		files);
+		files,
+		stats);
 	if (n < 0) {
 		free(files);
+		free(stats);
 		return NULL;
 	}
 	out = malloc((size_t)n + 1);
 	if (!out) {
 		free(files);
+		free(stats);
 		return NULL;
 	}
 	snprintf(out, (size_t)n + 1,
@@ -294,7 +337,8 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 		"Cumulative: in=%ld out=%ld total=%ld\n"
 		"Budget: %s\n"
 		"Workdir: %s\n"
-		"Modified files:\n%s",
+		"Modified files:\n%s\n"
+		"OpenCode stats:\n%s",
 		reply ? reply : "",
 		turn ? turn->prompt_tokens : 0,
 		turn ? turn->completion_tokens : 0,
@@ -304,8 +348,10 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 		total.total_tokens,
 		budget,
 		cfg->workdir ? cfg->workdir : "(unset)",
-		files);
+		files,
+		stats);
 	free(files);
+	free(stats);
 	return out;
 }
 

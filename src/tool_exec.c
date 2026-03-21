@@ -318,6 +318,12 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 			session_id,
 			cfg->workdir,
 			prompt);
+	} else if (cfg->opencode_session_id && *cfg->opencode_session_id) {
+		n = snprintf(cmd, sizeof(cmd),
+			"opencode run --format json --session %s --dir \"%s\" \"%s\"",
+			cfg->opencode_session_id,
+			cfg->workdir,
+			prompt);
 	} else {
 		n = snprintf(cmd, sizeof(cmd),
 			"opencode run --format json --dir \"%s\" \"%s\"",

@@ -81,6 +81,7 @@ int cfg_load(hermes_config_t *cfg)
 	if (!cfg->openai_url)
 		cfg->openai_url = dup_default("https://api.openai.com/v1/responses");
 	cfg->openai_system = envdup("HERMES_OPENAI_SYSTEM");
+	cfg->opencode_session_id = envdup("HERMES_OPENCODE_SESSION_ID");
 	if (!cfg->openai_system)
 		cfg->openai_system = dup_default(
 			"You are Hermes, an email coding assistant. "
@@ -196,6 +197,7 @@ void cfg_free(hermes_config_t *cfg)
 	free(cfg->openai_model);
 	free(cfg->openai_url);
 	free(cfg->openai_system);
+	free(cfg->opencode_session_id);
 	free(cfg->imap_url);
 	free(cfg->smtp_url);
 	free(cfg->mail_user);

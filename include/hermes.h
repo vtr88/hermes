@@ -14,6 +14,7 @@ typedef struct {
 	char *openai_model;
 	char *openai_url;
 	char *openai_system;
+	char *opencode_session_id;
 	char *imap_url;
 	char *smtp_url;
 	char *mail_user;
