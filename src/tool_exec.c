@@ -349,6 +349,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	char *session_id;
 	char *new_session_id;
 	char *reply;
+	const char *prompt;
 	hermes_usage_t usage;
 
 	if (!cfg || !db || !msg || !reply_out || !handled_out)
@@ -358,11 +359,17 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	session_id = NULL;
 	new_session_id = NULL;
 	reply = NULL;
+	prompt = NULL;
 	memset(&usage, 0, sizeof(usage));
+	prompt = msg->body;
+	if (!prompt || !*prompt)
+		prompt = msg->subject;
+	if (!prompt || !*prompt)
+		prompt = "Please respond briefly and confirm session is active.";
 
 	if (db_session_get(db, msg->thread_key, &session_id) < 0)
 		return -1;
-	if (run_opencode_turn(cfg, session_id, msg->body ? msg->body : "", &new_session_id, &reply, &usage) < 0) {
+	if (run_opencode_turn(cfg, session_id, prompt, &new_session_id, &reply, &usage) < 0) {
 		free(session_id);
 		return -1;
 	}
