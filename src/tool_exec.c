@@ -361,6 +361,48 @@ static int parse_approval_request(const char *json, char **token_out, char **com
 	return 1;
 }
 
+static int has_session_not_found(const char *s)
+{
+	if (!s)
+		return 0;
+	if (strstr(s, "Session not found") != NULL)
+		return 1;
+	if (strstr(s, "session not found") != NULL)
+		return 1;
+	return 0;
+}
+
+static char *build_email_turn_prompt(const char *body)
+{
+	const char *user;
+	char *out;
+	int n;
+
+	user = body ? body : "";
+	n = snprintf(NULL, 0,
+		"You are Hermes, replying to user email.\n"
+		"Treat the message as a normal user request unless it explicitly asks for protocol analysis.\n"
+		"Prefer direct execution over meta commentary about what might be implemented.\n"
+		"If the user asks for exact output or format, follow it strictly.\n"
+		"Reply in plain text.\n\n"
+		"User email:\n%s\n",
+		user);
+	if (n < 0)
+		return NULL;
+	out = malloc((size_t)n + 1);
+	if (!out)
+		return NULL;
+	snprintf(out, (size_t)n + 1,
+		"You are Hermes, replying to user email.\n"
+		"Treat the message as a normal user request unless it explicitly asks for protocol analysis.\n"
+		"Prefer direct execution over meta commentary about what might be implemented.\n"
+		"If the user asks for exact output or format, follow it strictly.\n"
+		"Reply in plain text.\n\n"
+		"User email:\n%s\n",
+		user);
+	return out;
+}
+
 static long find_last_long(const char *s, const char *key)
 {
 	char pat[64];
@@ -465,7 +507,9 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 	char **session_id_out, char **reply_out, char **raw_out, hermes_usage_t *usage)
 {
 	char *out;
+	char *retry_out;
 	int code;
+	int retry_code;
 	const char *sid;
 
 	if (!cfg || !prompt || !session_id_out || !reply_out || !usage)
@@ -481,9 +525,21 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 		sid = cfg->opencode_session_id;
 
 	out = NULL;
+	retry_out = NULL;
 	code = -1;
+	retry_code = -1;
 	if (run_opencode_capture(cfg, sid, prompt, &out, &code) < 0)
 		return -1;
+	if (code != 0 && sid && has_session_not_found(out)) {
+		if (run_opencode_capture(cfg, NULL, prompt, &retry_out, &retry_code) < 0) {
+			free(out);
+			return -1;
+		}
+		free(out);
+		out = retry_out;
+		retry_out = NULL;
+		code = retry_code;
+	}
 	if (raw_out)
 		*raw_out = xstrdup(out);
 	if (code != 0) {
@@ -514,6 +570,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	char *approval_command;
 	char *approved_command;
 	char *prompt_heap;
+	char *wrapped_prompt;
 	char *reply;
 	const char *prompt;
 	hermes_usage_t usage;
@@ -531,6 +588,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	approval_command = NULL;
 	approved_command = NULL;
 	prompt_heap = NULL;
+	wrapped_prompt = NULL;
 	reply = NULL;
 	prompt = NULL;
 	rc = 0;
@@ -579,10 +637,13 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	prompt = prompt_heap;
 	if (!prompt || !*prompt)
 		prompt = "Please respond briefly and confirm session is active.";
+	wrapped_prompt = build_email_turn_prompt(prompt);
+	if (!wrapped_prompt)
+		goto fail;
 
 	if (db_session_get(db, msg->thread_key, &session_id) < 0)
 		goto fail;
-	if (run_opencode_turn(cfg, session_id, prompt, &new_session_id, &reply, &raw, &usage) < 0)
+	if (run_opencode_turn(cfg, session_id, wrapped_prompt, &new_session_id, &reply, &raw, &usage) < 0)
 		goto fail;
 
 	free(token);
@@ -620,6 +681,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	free(approval_command);
 	free(approved_command);
 	free(prompt_heap);
+	free(wrapped_prompt);
 	return *reply_out ? 0 : -1;
 
 fail:
@@ -630,6 +692,7 @@ fail:
 	free(approval_command);
 	free(approved_command);
 	free(prompt_heap);
+	free(wrapped_prompt);
 	free(reply);
 	return -1;
 }

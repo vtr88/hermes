@@ -92,7 +92,8 @@ sudo chmod 600 /home/hermes/.config/hermes/hermes.env
 Required minimum:
 
 ```dotenv
-HERMES_OPENCODE_SESSION_ID=ses_2ea4c6332ffebE4qs78AhQY0fx
+# Optional. Leave unset for automatic per-thread session creation.
+# HERMES_OPENCODE_SESSION_ID=ses_your_existing_session_id
 
 HERMES_IMAP_URL=imaps://mail.vitor.win/INBOX
 HERMES_SMTP_URL=smtps://mail.vitor.win:465
@@ -110,7 +111,8 @@ HERMES_POLL_SECONDS=30
 
 Notes:
 
-- `HERMES_OPENCODE_SESSION_ID` seeds new email threads and can be used to continue an existing OpenCode session.
+- Recommended default: keep `HERMES_OPENCODE_SESSION_ID` unset.
+- Set `HERMES_OPENCODE_SESSION_ID` only when you intentionally want new threads to start from a known existing OpenCode session.
 - Hermes now runs OpenCode-only; `HERMES_OPENAI_*` variables are no longer required.
 
 Optional budget/cost footer values:

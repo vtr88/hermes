@@ -14,13 +14,12 @@ Hermes now runs as an **opencode-only email wrapper**:
 
 ## Active Session Seed
 
-Use this session id to continue current context in new threads:
+Recommended runtime default is **no forced seed**:
 
-- `ses_2ea4c6332ffebE4qs78AhQY0fx`
+- keep `HERMES_OPENCODE_SESSION_ID` unset,
+- let Hermes create/store session ids per thread in `thread_sessions`.
 
-Configure via env:
-
-- `HERMES_OPENCODE_SESSION_ID=ses_2ea4c6332ffebE4qs78AhQY0fx`
+Use `HERMES_OPENCODE_SESSION_ID=<ses_...>` only when intentionally bootstrapping from a known valid existing session.
 
 ## What Was Just Completed
 
@@ -35,6 +34,8 @@ Configure via env:
    - store token/command in `pending_actions`,
    - allow resume with `approve <token>` or `/approve <token>`.
 5. Updated config/tests/docs for opencode-only operation.
+6. Added auto-retry without session id when OpenCode reports `Session not found`.
+7. Added email turn wrapper prompt to reduce meta responses and improve direct execution style.
 
 ## Key Runtime Files
 
@@ -95,6 +96,6 @@ cd /home/hermes/Projects/hermes
 ## First Prompt To Send By Email
 
 ```text
-Read SESSION_HANDOFF.md and confirm you are using session id ses_2ea4c6332ffebE4qs78AhQY0fx.
-Then summarize current Hermes architecture and list next 2 improvements.
+Read SESSION_HANDOFF.md.
+Summarize current Hermes architecture in 3 bullets and list next 2 improvements.
 ```
