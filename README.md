@@ -59,7 +59,7 @@ This is the canonical setup for project `hermes`.
 ### 1) Create Linux user and password
 
 ```sh
-sudo useradd --create-home --shell /usr/sbin/nologin hermes || true
+sudo useradd --create-home --shell /bin/bash hermes || true
 sudo passwd hermes
 ```
 
@@ -162,9 +162,9 @@ sudo systemctl status hermes --no-pager
 sudo journalctl -u hermes -f
 ```
 
-## Git Push Setup for nologin Users
+## Git Push Setup (Shared Key Helper)
 
-Because project users use `nologin`, configure git and SSH non-interactively.
+If project users cannot push directly, configure shared SSH key access non-interactively.
 
 Use helper script:
 
@@ -249,6 +249,73 @@ For project user `newproject`:
 - service: `hermes-newproject.service`
 
 Repeat same bootstrap steps with `newproject` substitutions.
+
+## Project Factory Workflow (Recommended)
+
+Use this when creating each new app/project account on your VPN server.
+
+1) Create Linux user + home + login shell:
+
+```sh
+sudo useradd --create-home --shell /bin/bash <project>
+sudo passwd <project>
+```
+
+2) Create mailbox for that same account (mail server admin side):
+
+- mailbox: `<project>@vitor.win`
+
+3) Create project directory:
+
+```sh
+sudo install -d -m 755 -o <project> -g <project> /home/<project>/Projects
+sudo install -d -m 755 -o <project> -g <project> /home/<project>/Projects/<project>
+```
+
+4) Clone repo + set env:
+
+```sh
+sudo -u <project> git clone https://github.com/vtr88/hermes.git /home/<project>/Projects/<project>
+sudo install -d -m 700 -o <project> -g <project> /home/<project>/.config/hermes
+sudo cp /home/<project>/Projects/<project>/.env.example /home/<project>/.config/hermes/hermes.env
+sudo chown <project>:<project> /home/<project>/.config/hermes/hermes.env
+sudo chmod 600 /home/<project>/.config/hermes/hermes.env
+```
+
+5) Edit `/home/<project>/.config/hermes/hermes.env`:
+
+- `HERMES_MAIL_USER=<project>@vitor.win`
+- `HERMES_MAIL_PASS=<mailbox password>`
+- `HERMES_MAIL_FROM=<project>@vitor.win`
+- `HERMES_ALLOW_FROM=<your-controller-email>`
+- keep `HERMES_OPENCODE_SESSION_ID` unset by default
+
+6) Build + test + service:
+
+```sh
+sudo -u <project> bash -lc 'cd /home/<project>/Projects/<project> && make -B && make test'
+```
+
+Create `/etc/systemd/system/hermes-<project>.service` from current service template and set:
+
+- `User=<project>`
+- `Group=<project>`
+- `WorkingDirectory=/home/<project>/Projects/<project>`
+- `EnvironmentFile=/home/<project>/.config/hermes/hermes.env`
+- `ExecStart=/home/<project>/Projects/<project>/build/hermesd`
+
+Then enable:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now hermes-<project>
+```
+
+7) Start project by email:
+
+- send first instruction email to `<project>@vitor.win`
+- Hermes creates a fresh OpenCode session for that thread automatically
+- continue iterating by replying in the same thread
 
 ## Current Files
 

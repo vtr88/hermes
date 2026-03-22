@@ -11,6 +11,7 @@ Hermes now runs as an **opencode-only email wrapper**:
 - Reply text is extracted from JSON event stream and emailed back.
 - Session continuity is persisted per email thread (`thread_sessions`).
 - Metrics footer is appended to every reply.
+- Slash-command UX is not primary; default interaction is natural language email turns.
 
 ## Active Session Seed
 
@@ -50,6 +51,16 @@ Use `HERMES_OPENCODE_SESSION_ID=<ses_...>` only when intentionally bootstrapping
 - Repo/workdir: `/home/hermes/Projects/hermes`
 - Service file: `/etc/systemd/system/hermes.service`
 - Runtime env: `/home/hermes/.config/hermes/hermes.env`
+
+## Multi-Project Expansion Plan
+
+Planned operating model:
+
+- Keep `hermes` as base/reference project account.
+- For each new app, create a new Linux user + matching mailbox account.
+- Deploy same hermes daemon under that user and project path.
+- Run one service per project user (for example `hermes-<project>.service`).
+- Start work by emailing that account; Hermes creates a fresh session for new threads.
 
 ## Git Identity Standard
 

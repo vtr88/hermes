@@ -383,6 +383,7 @@ static char *build_email_turn_prompt(const char *body)
 		"You are Hermes, replying to user email.\n"
 		"Treat the message as a normal user request unless it explicitly asks for protocol analysis.\n"
 		"Prefer direct execution over meta commentary about what might be implemented.\n"
+		"Do not propose slash-command workflows unless the user explicitly asks for them.\n"
 		"If the user asks for exact output or format, follow it strictly.\n"
 		"Reply in plain text.\n\n"
 		"User email:\n%s\n",
@@ -396,6 +397,7 @@ static char *build_email_turn_prompt(const char *body)
 		"You are Hermes, replying to user email.\n"
 		"Treat the message as a normal user request unless it explicitly asks for protocol analysis.\n"
 		"Prefer direct execution over meta commentary about what might be implemented.\n"
+		"Do not propose slash-command workflows unless the user explicitly asks for them.\n"
 		"If the user asks for exact output or format, follow it strictly.\n"
 		"Reply in plain text.\n\n"
 		"User email:\n%s\n",
