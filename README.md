@@ -1,15 +1,15 @@
 # hermes
 
-Hermes is a minimalist C daemon that runs an OpenCode-like agent session through email.
+Hermes is a minimalist C daemon that runs an OpenCode session through email.
 
 You send a normal email message, Hermes reads it via IMAP, treats it as the next user turn,
 runs agent steps inside the project workdir, and replies in the same thread via SMTP.
 
 ## What Hermes Does
 
-- Ongoing conversational session from normal email messages.
+- Ongoing conversational coding session from normal email messages.
 - Agentic multi-step execution (plan, run command, inspect, continue, respond).
-- Approval-token flow only when a risky command is required.
+- Approval-token flow only when OpenCode emits a pending approval.
 - Response footer with execution/usage context and modified files.
 - Runs as plain IMAP/SMTP client (no Postfix/Dovecot config edits required).
 
@@ -17,7 +17,7 @@ runs agent steps inside the project workdir, and replies in the same thread via 
 
 - Send plain language requests, exactly like talking to a coding assistant.
 - Hermes keeps the session and continues from previous turns.
-- If a command needs approval, Hermes emails a token.
+- If OpenCode requests approval, Hermes emails a token.
 - Reply with either `approve <token>` or `/approve <token>`.
 
 Example messages:
@@ -41,14 +41,15 @@ You can override with `HERMES_WORKDIR`, but default convention is recommended.
 ## Prerequisites (Server)
 
 - Linux server with your mail server already running.
-- `cc`, `make`, `libcurl`, `sqlite3` dev libs.
+- `opencode` CLI installed and available in PATH for service user.
+- `cc`, `make`, `sqlite3` dev libs.
 - A mailbox account matching Linux user convention.
 
 Install build deps (Debian/Ubuntu):
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev rsync
+sudo apt-get install -y build-essential libsqlite3-dev rsync
 ```
 
 ## Project Bootstrap (Hermes User)
@@ -91,10 +92,7 @@ sudo chmod 600 /home/hermes/.config/hermes/hermes.env
 Required minimum:
 
 ```dotenv
-HERMES_OPENAI_KEY=sk-proj-...
-HERMES_OPENAI_MODEL=gpt-5.3-codex
-HERMES_OPENAI_URL=https://api.openai.com/v1/responses
-HERMES_OPENAI_SYSTEM=You are Hermes. Reply in plain text, concise and practical.
+HERMES_OPENCODE_SESSION_ID=ses_2ea4c6332ffebE4qs78AhQY0fx
 
 HERMES_IMAP_URL=imaps://mail.vitor.win/INBOX
 HERMES_SMTP_URL=smtps://mail.vitor.win:465
@@ -109,6 +107,11 @@ HERMES_MAX_PROMPT_CHARS=12000
 HERMES_TOOL_TIMEOUT_SEC=30
 HERMES_POLL_SECONDS=30
 ```
+
+Notes:
+
+- `HERMES_OPENCODE_SESSION_ID` seeds new email threads and can be used to continue an existing OpenCode session.
+- Hermes now runs OpenCode-only; `HERMES_OPENAI_*` variables are no longer required.
 
 Optional budget/cost footer values:
 
@@ -198,6 +201,25 @@ Example:
 ./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "vtr88@yahoo.com.br"
 ```
 
+## Restart Commands (Manual)
+
+If you already built and only need to restart service:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart hermes
+sudo systemctl status hermes --no-pager
+sudo journalctl -u hermes -n 120 --no-pager
+```
+
+If you changed code and want full rebuild + restart:
+
+```sh
+cd /home/hermes/Projects/hermes
+make -B && make test
+./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "vtr88@yahoo.com.br"
+```
+
 ## First Email to Start Session
 
 Send to `hermes@vitor.win`:
@@ -233,6 +255,6 @@ Repeat same bootstrap steps with `newproject` substitutions.
 ## Security Notes
 
 - Keep `.env` and runtime env files private (`chmod 600`).
-- Never commit API keys/passwords.
-- Rotate any leaked keys immediately.
+- Never commit mailbox passwords or other secrets.
+- Rotate leaked credentials immediately.
 - Hermes must remain mail-client-only unless explicitly changed.

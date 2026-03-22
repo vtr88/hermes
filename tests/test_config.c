@@ -11,8 +11,7 @@ static int test_missing_required(void)
 	hermes_config_t cfg;
 	int rc;
 
-	unsetenv("HERMES_OPENAI_KEY");
-	setenv("HERMES_MAIL_FROM", "bot@example.com", 1);
+	unsetenv("HERMES_MAIL_FROM");
 
 	rc = cfg_load(&cfg);
 	if (rc == 0) {
@@ -27,18 +26,11 @@ static int test_defaults(void)
 	hermes_config_t cfg;
 	int rc;
 
-	setenv("HERMES_OPENAI_KEY", "k", 1);
 	setenv("HERMES_MAIL_FROM", "bot@example.com", 1);
-	unsetenv("HERMES_OPENAI_MODEL");
-
 	rc = cfg_load(&cfg);
 	if (rc < 0)
 		return -1;
-	if (!cfg.openai_model || strcmp(cfg.openai_model, "gpt-5.3-codex") != 0) {
-		cfg_free(&cfg);
-		return -1;
-	}
-	if (!cfg.openai_system || cfg.max_prompt_chars != 12000) {
+	if (cfg.max_prompt_chars != 12000) {
 		cfg_free(&cfg);
 		return -1;
 	}

@@ -1,67 +1,93 @@
 # Hermes Session Handoff
 
-This file is the canonical handoff context for the email agent.
+This file is the canonical context for email-driven agent continuation.
 
-## Current Product Direction
+## Current State
 
-Hermes is now an **email wrapper around OpenCode session execution**.
+Hermes now runs as an **opencode-only email wrapper**:
 
-Target behavior:
+- Each inbound email is treated as the next user turn.
+- Hermes runs `opencode run --format json` in project workdir.
+- Reply text is extracted from JSON event stream and emailed back.
+- Session continuity is persisted per email thread (`thread_sessions`).
+- Metrics footer is appended to every reply.
 
-- User sends plain email instructions (no `/run` needed).
-- Hermes treats each email as next turn of an OpenCode-like coding session.
-- Hermes executes in project workdir and replies with assistant-style output.
-- Session persists by thread, so replies continue context.
-- Footer includes runtime context and `opencode stats` output.
+## Active Session Seed
 
-## Key Decisions
+Use this session id to continue current context in new threads:
 
-1. Removed legacy intent routing and explicit command-first UX.
-2. `src/tool_exec.c` now calls `opencode run --format json` directly.
-3. Session persistence added in DB via `thread_sessions` table.
-4. If a thread has no saved session, Hermes can use seeded env session id.
-5. Keep Hermes mail-client-only (no Postfix/Dovecot config edits).
+- `ses_2ea4c6332ffebE4qs78AhQY0fx`
 
-## Seed Session ID
+Configure via env:
 
-Use this session id as bootstrap when thread has no stored session:
+- `HERMES_OPENCODE_SESSION_ID=ses_2ea4c6332ffebE4qs78AhQY0fx`
 
-- `ses_2ed9abc99ffew9VyabNwJMXVJL`
+## What Was Just Completed
 
-Configured via:
+1. Removed legacy OpenAI fallback flow from runtime message handling.
+2. Wired runtime to tool path only (`tool_try_handle`) and propagated usage stats.
+3. Hardened opencode invocation in `src/tool_exec.c`:
+   - prompts trimmed,
+   - blank prompt fallback,
+   - `--` separator before prompt to avoid argument misparse.
+4. Added approval round-trip support:
+   - detect pending approval from opencode JSON,
+   - store token/command in `pending_actions`,
+   - allow resume with `approve <token>` or `/approve <token>`.
+5. Updated config/tests/docs for opencode-only operation.
 
-- `HERMES_OPENCODE_SESSION_ID=ses_2ed9abc99ffew9VyabNwJMXVJL`
+## Key Runtime Files
 
-## Expected Runtime Paths
+- `src/main.c`: polling loop, sender allowlist, footer, message dispatch.
+- `src/tool_exec.c`: opencode process execution, JSON parse, approval flow.
+- `src/config.c`: env loading (mail vars + opencode session seed).
+- `src/db.c`: messages, usage totals, pending approvals, thread sessions.
+- `include/hermes.h`: shared runtime interfaces.
 
-- mailbox user: `hermes@vitor.win`
-- project path: `/home/hermes/Projects/hermes`
-- service: `/etc/systemd/system/hermes.service`
+## Operational Paths
+
+- Repo/workdir: `/home/hermes/Projects/hermes`
+- Service file: `/etc/systemd/system/hermes.service`
+- Runtime env: `/home/hermes/.config/hermes/hermes.env`
 
 ## Git Identity Standard
 
-Use this email for commits:
+- Name: `Vitor Hugo`
+- Email: `vtr88@yahoo.com.br`
 
-- `vtr88@yahoo.com.br`
+Do not use previous `contato@vitor.win` for new commits.
 
-Do not use previous `contato@vitor.win` anymore.
+## Restart / Deploy Commands
 
-## What To Verify After Deploy
+Manual restart only:
 
-1. Plain email request triggers OpenCode backend execution.
-2. Reply reflects assistant output from `opencode run --format json`.
-3. Thread continuity persists across follow-up emails.
-4. Footer includes:
-   - turn/cumulative token context
-   - budget line
-   - modified files
-   - `opencode stats`
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart hermes
+sudo systemctl status hermes --no-pager
+sudo journalctl -u hermes -n 120 --no-pager
+```
 
-## Next Work if Behavior Drifts
+Rebuild + tests + restart:
 
-If Hermes falls back to generic “I can’t access repo” text:
+```sh
+cd /home/hermes/Projects/hermes
+make -B && make test
+./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "vtr88@yahoo.com.br"
+```
 
-1. Ensure deployed binary is latest commit.
-2. Confirm `opencode` binary is available to service user.
-3. Validate session id persistence (`thread_sessions`).
-4. Inspect JSON parsing path in `src/tool_exec.c`.
+## Email Verification Checklist
+
+1. Send plain request email (no slash command needed).
+2. Confirm reply includes assistant output (not opencode CLI help text).
+3. Send follow-up in same thread and confirm context continuity.
+4. Trigger an approval-needed action; confirm token email appears.
+5. Reply with `/approve <token>` and confirm action resumes.
+6. Confirm footer includes turn/cumulative stats, budget, workdir, modified files, `opencode stats`.
+
+## First Prompt To Send By Email
+
+```text
+Read SESSION_HANDOFF.md and confirm you are using session id ses_2ea4c6332ffebE4qs78AhQY0fx.
+Then summarize current Hermes architecture and list next 2 improvements.
+```

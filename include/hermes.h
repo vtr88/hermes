@@ -10,10 +10,6 @@ typedef struct {
 } hermes_usage_t;
 
 typedef struct {
-	char *openai_key;
-	char *openai_model;
-	char *openai_url;
-	char *openai_system;
 	char *opencode_session_id;
 	char *imap_url;
 	char *smtp_url;
@@ -61,11 +57,8 @@ int db_usage_get(hermes_db_t *db, hermes_usage_t *usage_out);
 int db_session_get(hermes_db_t *db, const char *thread_key, char **session_id_out);
 int db_session_set(hermes_db_t *db, const char *thread_key, const char *session_id);
 
-int openai_generate(const hermes_config_t *cfg, const char *prompt, char **reply_out);
-void openai_last_usage(hermes_usage_t *usage_out);
-
 int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_message_t *msg,
-	char **reply_out, int *handled_out);
+	char **reply_out, hermes_usage_t *usage_out, int *handled_out);
 
 int email_poll(const hermes_config_t *cfg, hermes_message_t **msgs_out, size_t *len_out);
 int email_send(const hermes_config_t *cfg, const hermes_message_t *msg, const char *reply_text);

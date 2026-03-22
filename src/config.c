@@ -73,20 +73,7 @@ int cfg_load(hermes_config_t *cfg)
 		return -1;
 
 	memset(cfg, 0, sizeof(*cfg));
-	cfg->openai_key = envdup("HERMES_OPENAI_KEY");
-	cfg->openai_model = envdup("HERMES_OPENAI_MODEL");
-	if (!cfg->openai_model)
-		cfg->openai_model = dup_default("gpt-5.3-codex");
-	cfg->openai_url = envdup("HERMES_OPENAI_URL");
-	if (!cfg->openai_url)
-		cfg->openai_url = dup_default("https://api.openai.com/v1/responses");
-	cfg->openai_system = envdup("HERMES_OPENAI_SYSTEM");
 	cfg->opencode_session_id = envdup("HERMES_OPENCODE_SESSION_ID");
-	if (!cfg->openai_system)
-		cfg->openai_system = dup_default(
-			"You are Hermes, an email coding assistant. "
-			"Reply in plain text, not JSON. "
-			"Be concise, helpful, and practical like a terminal coding assistant.");
 	cfg->imap_url = envdup("HERMES_IMAP_URL");
 	cfg->smtp_url = envdup("HERMES_SMTP_URL");
 	cfg->mail_user = envdup("HERMES_MAIL_USER");
@@ -181,7 +168,7 @@ int cfg_load(hermes_config_t *cfg)
 		}
 	}
 
-	if (!cfg->openai_key || !cfg->mail_from) {
+	if (!cfg->mail_from) {
 		cfg_free(cfg);
 		return -1;
 	}
@@ -193,10 +180,6 @@ void cfg_free(hermes_config_t *cfg)
 	if (!cfg)
 		return;
 
-	free(cfg->openai_key);
-	free(cfg->openai_model);
-	free(cfg->openai_url);
-	free(cfg->openai_system);
 	free(cfg->opencode_session_id);
 	free(cfg->imap_url);
 	free(cfg->smtp_url);

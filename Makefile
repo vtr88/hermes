@@ -21,7 +21,6 @@ SRC = \
 	src/main.c \
 	src/config.c \
 	src/db.c \
-	src/openai.c \
 	src/email.c \
 	src/tool_exec.c
 

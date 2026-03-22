@@ -131,65 +131,6 @@ static int sender_allowed(const hermes_config_t *cfg, const char *from)
 	return allowed;
 }
 
-/* Clamp user prompt size to keep per-turn payload bounded. */
-static char *clamped_prompt(const hermes_config_t *cfg, const char *body)
-{
-	char *p;
-	size_t n;
-
-	if (!body)
-		return xstrndup("", 0);
-	n = strlen(body);
-	if (cfg && cfg->max_prompt_chars > 0 && n > (size_t)cfg->max_prompt_chars)
-		n = (size_t)cfg->max_prompt_chars;
-	p = xstrndup(body, n);
-	if (!p)
-		return NULL;
-	return p;
-}
-
-/*
- * Build prompt for model call:
- * - recent context from same thread (db_thread_context)
- * - current user message
- */
-static char *build_turn_prompt(hermes_db_t *db, const hermes_message_t *msg, const char *body)
-{
-	char *ctx;
-	char *prompt;
-	int n;
-
-	ctx = NULL;
-	if (db_thread_context(db, msg->thread_key, 6, &ctx) < 0)
-		return NULL;
-	if (!ctx)
-		ctx = xstrndup("", 0);
-	if (!ctx)
-		return NULL;
-
-	n = snprintf(NULL, 0,
-		"Conversation context from same email thread:\n%s"
-		"Current user message:\n%s\n",
-		ctx,
-		body ? body : "");
-	if (n < 0) {
-		free(ctx);
-		return NULL;
-	}
-	prompt = malloc((size_t)n + 1);
-	if (!prompt) {
-		free(ctx);
-		return NULL;
-	}
-	snprintf(prompt, (size_t)n + 1,
-		"Conversation context from same email thread:\n%s"
-		"Current user message:\n%s\n",
-		ctx,
-		body ? body : "");
-	free(ctx);
-	return prompt;
-}
-
 /*
  * Snapshot modified files for footer.
  * Uses git status from configured workdir, capped to 30 lines.
@@ -362,23 +303,20 @@ static void on_signal(int sig)
 	stop_flag = 1;
 }
 
-/*
- * Process one email message.
- * Tool path is attempted before normal LLM path so command requests are immediate.
- */
+/* Process one email message. */
 static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const hermes_message_t *msg)
 {
-	char *prompt;
 	char *final_reply;
 	char *reply;
 	hermes_usage_t usage;
 	int seen;
+	int handled;
 
-	prompt = NULL;
 	final_reply = NULL;
 	reply = NULL;
 	memset(&usage, 0, sizeof(usage));
 	seen = 0;
+	handled = 0;
 	if (!sender_allowed(cfg, msg->from)) {
 		fprintf(stderr, "skip: sender not allowlisted: %s\n", msg->from ? msg->from : "(null)");
 		return 0;
@@ -387,57 +325,11 @@ static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const her
 		return -1;
 	if (seen)
 		return 0;
-	{
-		int handled;
-
-		handled = 0;
-		if (tool_try_handle(cfg, db, msg, &reply, &handled) < 0)
-			return -1;
-		if (handled) {
-			final_reply = append_metrics_footer(cfg, db, reply ? reply : "", &usage);
-			if (!final_reply)
-				final_reply = xstrndup(reply ? reply : "", strlen(reply ? reply : ""));
-			if (!final_reply) {
-				free(reply);
-				return -1;
-			}
-			if (email_send(cfg, msg, final_reply) < 0) {
-				free(final_reply);
-				free(reply);
-				return -1;
-			}
-			if (db_store_message(db, msg, final_reply) < 0) {
-				free(final_reply);
-				free(reply);
-				return -1;
-			}
-			free(final_reply);
-			free(reply);
-			return 0;
-		}
-	}
-
-	prompt = clamped_prompt(cfg, msg->body);
-	if (!prompt)
+	if (tool_try_handle(cfg, db, msg, &reply, &usage, &handled) < 0)
 		return -1;
-	{
-		char *turn_prompt;
-
-		turn_prompt = build_turn_prompt(db, msg, prompt);
-		free(prompt);
-		if (!turn_prompt)
-			return -1;
-		if (openai_generate(cfg, turn_prompt, &reply) < 0) {
-			free(turn_prompt);
-			return -1;
-		}
-		openai_last_usage(&usage);
-		if (db_usage_add(db, &usage) < 0) {
-			free(turn_prompt);
-			free(reply);
-			return -1;
-		}
-		free(turn_prompt);
+	if (!handled) {
+		free(reply);
+		return 0;
 	}
 	final_reply = append_metrics_footer(cfg, db, reply, &usage);
 	if (!final_reply)
@@ -506,7 +398,7 @@ int main(void)
 #endif
 
 	if (cfg_load(&cfg) < 0) {
-		fprintf(stderr, "config: set HERMES_OPENAI_KEY and HERMES_MAIL_FROM\n");
+		fprintf(stderr, "config: set HERMES_MAIL_FROM\n");
 		return 1;
 	}
 	if (db_open(&db, cfg.db_path) < 0) {
