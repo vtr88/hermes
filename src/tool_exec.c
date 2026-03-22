@@ -29,6 +29,8 @@ static char *xstrdup(const char *s)
 	return p;
 }
 
+static int append_text(char **acc, const char *text);
+
 static int is_blank_text(const char *s)
 {
 	if (!s)
@@ -67,6 +69,27 @@ static char *trim_dup(const char *s)
 	while (e > b && isspace((unsigned char)e[-1]))
 		e--;
 	return xstrndup(b, (size_t)(e - b));
+}
+
+static int append_limited(char **acc, const char *text, size_t max_chars)
+{
+	char *clip;
+	size_t n;
+	int rc;
+
+	if (!acc || !text)
+		return -1;
+	n = strlen(text);
+	if (n <= max_chars)
+		return append_text(acc, text);
+	clip = xstrndup(text, max_chars);
+	if (!clip)
+		return -1;
+	rc = append_text(acc, clip);
+	free(clip);
+	if (rc < 0)
+		return -1;
+	return append_text(acc, "\n...[truncated]\n");
 }
 
 static int append_text(char **acc, const char *text)
@@ -474,8 +497,10 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 		return -1;
 	}
 	free(out);
-	if (!*reply_out)
-		*reply_out = xstrdup("(no response text)");
+	if (!*reply_out || is_blank_text(*reply_out)) {
+		free(*reply_out);
+		*reply_out = xstrdup("(no assistant text returned)");
+	}
 	return *reply_out ? 0 : -1;
 }
 
@@ -570,6 +595,10 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 			append_text(&reply, "\n\nApproval required. Reply with /approve ");
 			append_text(&reply, token);
 		}
+	}
+	if (reply && is_blank_text(reply) && raw && *raw) {
+		append_text(&reply, "\n\n[hermes] opencode raw events excerpt:\n");
+		append_limited(&reply, raw, 1200);
 	}
 
 	if (new_session_id && *new_session_id)
