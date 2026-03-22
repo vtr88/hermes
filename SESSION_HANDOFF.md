@@ -76,6 +76,13 @@ make -B && make test
 ./scripts/hermes-redeploy.sh hermes hermes "Vitor Hugo" "vtr88@yahoo.com.br"
 ```
 
+Build + tests + push + restart:
+
+```sh
+cd /home/hermes/Projects/hermes
+./scripts/hermes-push-restart.sh hermes hermes main
+```
+
 ## Email Verification Checklist
 
 1. Send plain request email (no slash command needed).

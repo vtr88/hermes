@@ -189,6 +189,12 @@ cd /home/hermes/Projects/hermes
 ./scripts/hermes-redeploy.sh
 ```
 
+For build + test + push + restart in one command:
+
+```sh
+./scripts/hermes-push-restart.sh hermes hermes main
+```
+
 Custom form:
 
 ```sh
@@ -249,6 +255,7 @@ Repeat same bootstrap steps with `newproject` substitutions.
 - `tests/` test binaries
 - `ops/` service example
 - `scripts/hermes-redeploy.sh` sync/build/restart helper
+- `scripts/hermes-push-restart.sh` build/test/push/restart helper
 - `scripts/setup-shared-github-key.sh` shared SSH key + git identity helper
 - `SESSION_HANDOFF.md` state snapshot for future agents
 

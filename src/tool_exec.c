@@ -499,7 +499,7 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 	free(out);
 	if (!*reply_out || is_blank_text(*reply_out)) {
 		free(*reply_out);
-		*reply_out = xstrdup("(no assistant text returned)");
+		*reply_out = xstrdup("");
 	}
 	return *reply_out ? 0 : -1;
 }
@@ -596,7 +596,12 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 			append_text(&reply, token);
 		}
 	}
-	if (reply && is_blank_text(reply) && raw && *raw) {
+	if (raw && *raw && (!reply || is_blank_text(reply) || strcmp(reply, "(no assistant text returned)") == 0)) {
+		if (!reply) {
+			reply = xstrdup("");
+			if (!reply)
+				goto fail;
+		}
 		append_text(&reply, "\n\n[hermes] opencode raw events excerpt:\n");
 		append_limited(&reply, raw, 1200);
 	}
