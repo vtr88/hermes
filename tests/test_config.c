@@ -30,11 +30,7 @@ static int test_defaults(void)
 	rc = cfg_load(&cfg);
 	if (rc < 0)
 		return -1;
-	if (cfg.max_prompt_chars != 12000) {
-		cfg_free(&cfg);
-		return -1;
-	}
-	if (!cfg.workdir || cfg.tool_timeout_sec != 30) {
+	if (!cfg.workdir || cfg.tool_timeout_sec != 300) {
 		cfg_free(&cfg);
 		return -1;
 	}

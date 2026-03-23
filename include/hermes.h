@@ -20,12 +20,9 @@ typedef struct {
 	char *allow_from;
 	char *workdir;
 	char *db_path;
-	int max_prompt_chars;
 	int tool_timeout_sec;
 	int poll_seconds;
 	double budget_usd;
-	double input_usd_per_mtok;
-	double output_usd_per_mtok;
 } hermes_config_t;
 
 typedef struct {
@@ -48,10 +45,8 @@ void db_close(hermes_db_t *db);
 int db_seen_message(hermes_db_t *db, const char *message_id, int *seen);
 int db_store_message(hermes_db_t *db, const hermes_message_t *msg, const char *reply_text);
 int db_thread_context(hermes_db_t *db, const char *thread_key, int max_items, char **out);
-int db_pending_create(hermes_db_t *db, const char *thread_key, const char *token, const char *command,
-	int needs_approval);
-int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *token, char **command_out,
-	int *needs_approval_out);
+int db_pending_create(hermes_db_t *db, const char *thread_key, const char *token, const char *command);
+int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *token, char **command_out);
 int db_usage_add(hermes_db_t *db, const hermes_usage_t *usage);
 int db_usage_get(hermes_db_t *db, hermes_usage_t *usage_out);
 int db_session_get(hermes_db_t *db, const char *thread_key, char **session_id_out);

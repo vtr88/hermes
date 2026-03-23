@@ -131,7 +131,6 @@ int db_open(hermes_db_t *db, const char *path)
 			"thread_key TEXT NOT NULL," \
 			"token TEXT NOT NULL," \
 			"command TEXT NOT NULL," \
-			"needs_approval INTEGER NOT NULL DEFAULT 1," \
 			"created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))," \
 			"PRIMARY KEY(thread_key, token)" \
 			");",
@@ -387,8 +386,7 @@ int db_thread_context(hermes_db_t *db, const char *thread_key, int max_items, ch
 #endif
 }
 
-int db_pending_create(hermes_db_t *db, const char *thread_key, const char *token, const char *command,
-	int needs_approval)
+int db_pending_create(hermes_db_t *db, const char *thread_key, const char *token, const char *command)
 {
 	if (!db || !thread_key || !token || !command)
 		return -1;
@@ -406,8 +404,7 @@ int db_pending_create(hermes_db_t *db, const char *thread_key, const char *token
 			return -1;
 
 		rc = sqlite3_prepare_v2(sql,
-			"INSERT OR REPLACE INTO pending_actions(thread_key, token, command, needs_approval) "
-			"VALUES(?1, ?2, ?3, ?4);",
+			"INSERT OR REPLACE INTO pending_actions(thread_key, token, command) VALUES(?1, ?2, ?3);",
 			-1, &st, NULL);
 		if (rc != SQLITE_OK) {
 			sqlite3_close(sql);
@@ -416,25 +413,21 @@ int db_pending_create(hermes_db_t *db, const char *thread_key, const char *token
 		sqlite3_bind_text(st, 1, thread_key, -1, SQLITE_STATIC);
 		sqlite3_bind_text(st, 2, token, -1, SQLITE_STATIC);
 		sqlite3_bind_text(st, 3, command, -1, SQLITE_STATIC);
-		sqlite3_bind_int(st, 4, needs_approval ? 1 : 0);
 		rc = sqlite3_step(st);
 		sqlite3_finalize(st);
 		sqlite3_close(sql);
 		return rc == SQLITE_DONE ? 0 : -1;
 	}
 #else
-	(void)needs_approval;
 	return -1;
 #endif
 }
 
-int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *token, char **command_out,
-	int *needs_approval_out)
+int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *token, char **command_out)
 {
-	if (!db || !thread_key || !token || !command_out || !needs_approval_out)
+	if (!db || !thread_key || !token || !command_out)
 		return -1;
 	*command_out = NULL;
-	*needs_approval_out = 0;
 
 #ifdef HERMES_WITH_SQLITE
 	{
@@ -450,8 +443,7 @@ int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *toke
 			return -1;
 
 		rc = sqlite3_prepare_v2(sql,
-			"SELECT command, needs_approval FROM pending_actions "
-			"WHERE thread_key = ?1 AND token = ?2 LIMIT 1;",
+			"SELECT command FROM pending_actions WHERE thread_key = ?1 AND token = ?2 LIMIT 1;",
 			-1, &st, NULL);
 		if (rc != SQLITE_OK) {
 			sqlite3_close(sql);
@@ -466,7 +458,6 @@ int db_pending_consume(hermes_db_t *db, const char *thread_key, const char *toke
 			return 1;
 		}
 		cmd = (const char *)sqlite3_column_text(st, 0);
-		*needs_approval_out = sqlite3_column_int(st, 1) ? 1 : 0;
 		*command_out = xstrdup(cmd ? cmd : "");
 		sqlite3_finalize(st);
 		if (!*command_out) {

@@ -14,22 +14,6 @@
 #include <curl/curl.h>
 #endif
 
-/*
- * Hermes main runtime flow
- * ------------------------
- * 1) Load config from environment (cfg_load).
- * 2) Open persistence database (db_open).
- * 3) Poll inbox for messages (email_poll).
- * 4) For each message:
- *    - enforce sender allowlist,
- *    - dedupe by message-id,
- *    - route into agent session execution,
- *    - request approval by token only when needed,
- *    - append runtime footer (usage, budget, workdir, changed files),
- *    - send reply and persist turn.
- * 5) Sleep and continue until SIGINT/SIGTERM.
- */
-
 static volatile sig_atomic_t stop_flag;
 
 static int append_text(char **acc, const char *text)
@@ -51,7 +35,6 @@ static int append_text(char **acc, const char *text)
 	return 0;
 }
 
-/* strdup variant with explicit length. */
 static char *xstrndup(const char *s, size_t n)
 {
 	char *p;
@@ -64,7 +47,6 @@ static char *xstrndup(const char *s, size_t n)
 	return p;
 }
 
-/* Extract plain mailbox address from "Name <user@host>" style header. */
 static char *email_addr_only(const char *from)
 {
 	const char *a;
@@ -79,7 +61,6 @@ static char *email_addr_only(const char *from)
 	return xstrndup(from, strlen(from));
 }
 
-/* Trim leading/trailing ASCII whitespace in-place. */
 static void trim_ascii(char *s)
 {
 	char *e;
@@ -93,7 +74,6 @@ static void trim_ascii(char *s)
 		memmove(s, s + 1, strlen(s));
 }
 
-/* Check if sender is accepted by HERMES_ALLOW_FROM (comma-separated list). */
 static int sender_allowed(const hermes_config_t *cfg, const char *from)
 {
 	char *addr;
@@ -131,10 +111,6 @@ static int sender_allowed(const hermes_config_t *cfg, const char *from)
 	return allowed;
 }
 
-/*
- * Snapshot modified files for footer.
- * Uses git status from configured workdir, capped to 30 lines.
- */
 static char *capture_modified_files(const hermes_config_t *cfg)
 {
 	char cmd[1024];
@@ -197,10 +173,6 @@ static char *capture_opencode_stats(const hermes_config_t *cfg)
 	return out;
 }
 
-/*
- * Append a diagnostics footer to every reply.
- * Includes turn usage, cumulative usage, budget summary and modified files.
- */
 static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, const char *reply,
 	const hermes_usage_t *turn)
 {
@@ -296,14 +268,12 @@ static char *append_metrics_footer(const hermes_config_t *cfg, hermes_db_t *db, 
 	return out;
 }
 
-/* Signal handler: set stop flag, loop exits gracefully next iteration. */
 static void on_signal(int sig)
 {
 	(void)sig;
 	stop_flag = 1;
 }
 
-/* Process one email message. */
 static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const hermes_message_t *msg)
 {
 	char *final_reply;
@@ -353,7 +323,6 @@ static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const her
 	return 0;
 }
 
-/* Main polling loop: fetch batch, process, free, sleep, repeat. */
 static void run_loop(const hermes_config_t *cfg, hermes_db_t *db)
 {
 	hermes_message_t *msgs;
@@ -374,13 +343,6 @@ static void run_loop(const hermes_config_t *cfg, hermes_db_t *db)
 
 int main(void)
 {
-	/*
-	 * Top-level orchestration:
-	 * - initialize libraries/signals
-	 * - load config + open db
-	 * - run loop
-	 * - cleanup on stop
-	 */
 	hermes_config_t cfg;
 	hermes_db_t db;
 

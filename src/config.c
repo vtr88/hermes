@@ -90,22 +90,7 @@ int cfg_load(hermes_config_t *cfg)
 	if (!cfg->db_path)
 		cfg->db_path = dup_default("build/hermes.db");
 
-	cfg->max_prompt_chars = 12000;
-	{
-		char *m;
-
-		m = envdup("HERMES_MAX_PROMPT_CHARS");
-		if (m) {
-			int n;
-
-			n = atoi(m);
-			if (n > 1000)
-				cfg->max_prompt_chars = n;
-			free(m);
-		}
-	}
-
-	cfg->tool_timeout_sec = 30;
+	cfg->tool_timeout_sec = 300;
 	{
 		char *t;
 
@@ -114,7 +99,7 @@ int cfg_load(hermes_config_t *cfg)
 			int n;
 
 			n = atoi(t);
-			if (n >= 5 && n <= 600)
+			if (n >= 5 && n <= 1800)
 				cfg->tool_timeout_sec = n;
 			free(t);
 		}
@@ -143,28 +128,6 @@ int cfg_load(hermes_config_t *cfg)
 		if (b) {
 			cfg->budget_usd = strtod(b, NULL);
 			free(b);
-		}
-	}
-
-	cfg->input_usd_per_mtok = 0.0;
-	{
-		char *v;
-
-		v = envdup("HERMES_INPUT_USD_PER_MTOK");
-		if (v) {
-			cfg->input_usd_per_mtok = strtod(v, NULL);
-			free(v);
-		}
-	}
-
-	cfg->output_usd_per_mtok = 0.0;
-	{
-		char *v;
-
-		v = envdup("HERMES_OUTPUT_USD_PER_MTOK");
-		if (v) {
-			cfg->output_usd_per_mtok = strtod(v, NULL);
-			free(v);
 		}
 	}
 

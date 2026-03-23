@@ -71,27 +71,6 @@ static char *trim_dup(const char *s)
 	return xstrndup(b, (size_t)(e - b));
 }
 
-static int append_limited(char **acc, const char *text, size_t max_chars)
-{
-	char *clip;
-	size_t n;
-	int rc;
-
-	if (!acc || !text)
-		return -1;
-	n = strlen(text);
-	if (n <= max_chars)
-		return append_text(acc, text);
-	clip = xstrndup(text, max_chars);
-	if (!clip)
-		return -1;
-	rc = append_text(acc, clip);
-	free(clip);
-	if (rc < 0)
-		return -1;
-	return append_text(acc, "\n...[truncated]\n");
-}
-
 static int append_text(char **acc, const char *text)
 {
 	char *next;
@@ -491,6 +470,32 @@ static int parse_opencode_json(const char *json, char **session_id_out, char **t
 		free(txt);
 		p = t;
 	}
+	if (!acc || !*acc) {
+		free(acc);
+		acc = NULL;
+		p = json;
+		while ((p = strstr(p, "\"text\":\"")) != NULL) {
+			const char *t;
+			char *txt;
+
+			t = p + strlen("\"text\":\"");
+			txt = json_unescape(t);
+			if (!txt)
+				break;
+			if (acc && append_text(&acc, "\n") < 0) {
+				free(txt);
+				free(acc);
+				return -1;
+			}
+			if (append_text(&acc, txt) < 0) {
+				free(txt);
+				free(acc);
+				return -1;
+			}
+			free(txt);
+			p = t;
+		}
+	}
 
 	if (!acc)
 		acc = xstrdup("");
@@ -604,10 +609,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	if (rc < 0)
 		goto fail;
 	if (rc > 0) {
-		int needs_approval;
-
-		needs_approval = 0;
-		rc = db_pending_consume(db, msg->thread_key, token, &approved_command, &needs_approval);
+		rc = db_pending_consume(db, msg->thread_key, token, &approved_command);
 		if (rc < 0)
 			goto fail;
 		if (rc == 1) {
@@ -654,19 +656,17 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	if (rc < 0)
 		goto fail;
 	if (rc > 0 && token && approval_command) {
-		if (db_pending_create(db, msg->thread_key, token, approval_command, 1) == 0) {
+		if (db_pending_create(db, msg->thread_key, token, approval_command) == 0) {
 			append_text(&reply, "\n\nApproval required. Reply with /approve ");
 			append_text(&reply, token);
 		}
 	}
-	if (raw && *raw && (!reply || is_blank_text(reply) || strcmp(reply, "(no assistant text returned)") == 0)) {
-		if (!reply) {
-			reply = xstrdup("");
-			if (!reply)
-				goto fail;
-		}
-		append_text(&reply, "\n\n[hermes] opencode raw events excerpt:\n");
-		append_limited(&reply, raw, 1200);
+	if (!reply || is_blank_text(reply) || strcmp(reply, "(no assistant text returned)") == 0) {
+		free(reply);
+		reply = xstrdup("I could not read a plain-text answer from OpenCode for this turn. "
+			"Please resend your request in one sentence.");
+		if (!reply)
+			goto fail;
 	}
 
 	if (new_session_id && *new_session_id)

@@ -116,6 +116,20 @@ static char *extract_angle_id(const char *s)
 	return xstrndup(a, (size_t)(b - a + 1));
 }
 
+static char *extract_first_angle_id(const char *s)
+{
+	const char *a;
+	const char *b;
+
+	if (!s)
+		return NULL;
+	a = strchr(s, '<');
+	b = a ? strchr(a, '>') : NULL;
+	if (a && b && b > a)
+		return xstrndup(a, (size_t)(b - a + 1));
+	return xstrdup(s);
+}
+
 static char *header_value(const char *headers, const char *name)
 {
 	const char *p;
@@ -400,7 +414,7 @@ static int message_from_uid(const hermes_config_t *cfg, unsigned long uid, herme
 	if (!m->message_id)
 		goto fail;
 	if (refs && *refs)
-		m->thread_key = extract_angle_id(refs);
+		m->thread_key = extract_first_angle_id(refs);
 	else if (ireply && *ireply)
 		m->thread_key = extract_angle_id(ireply);
 	else
