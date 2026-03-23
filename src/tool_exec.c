@@ -443,11 +443,7 @@ static int parse_opencode_json(const char *json, char **session_id_out, char **t
 	*text_out = NULL;
 	memset(usage, 0, sizeof(*usage));
 
-	p = strstr(json, "\"sessionID\":\"");
-	if (p) {
-		p += strlen("\"sessionID\":\"");
-		*session_id_out = json_unescape(p);
-	}
+	*session_id_out = find_last_string_value(json, "sessionID");
 
 	acc = NULL;
 	p = json;
@@ -511,7 +507,8 @@ static int parse_opencode_json(const char *json, char **session_id_out, char **t
 }
 
 static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id, const char *prompt,
-	char **session_id_out, char **reply_out, char **raw_out, hermes_usage_t *usage)
+	char **session_id_out, char **reply_out, char **raw_out, hermes_usage_t *usage,
+	int *session_reset_out)
 {
 	char *out;
 	char *retry_out;
@@ -519,10 +516,11 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 	int retry_code;
 	const char *sid;
 
-	if (!cfg || !prompt || !session_id_out || !reply_out || !usage)
+	if (!cfg || !prompt || !session_id_out || !reply_out || !usage || !session_reset_out)
 		return -1;
 	*session_id_out = NULL;
 	*reply_out = NULL;
+	*session_reset_out = 0;
 	if (raw_out)
 		*raw_out = NULL;
 	sid = NULL;
@@ -538,6 +536,7 @@ static int run_opencode_turn(const hermes_config_t *cfg, const char *session_id,
 	if (run_opencode_capture(cfg, sid, prompt, &out, &code) < 0)
 		return -1;
 	if (code != 0 && sid && has_session_not_found(out)) {
+		*session_reset_out = 1;
 		if (run_opencode_capture(cfg, NULL, prompt, &retry_out, &retry_code) < 0) {
 			free(out);
 			return -1;
@@ -581,6 +580,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	char *reply;
 	const char *prompt;
 	hermes_usage_t usage;
+	int session_reset;
 	int rc;
 
 	if (!cfg || !db || !msg || !reply_out || !usage_out || !handled_out)
@@ -599,6 +599,7 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 	reply = NULL;
 	prompt = NULL;
 	rc = 0;
+	session_reset = 0;
 	memset(&usage, 0, sizeof(usage));
 
 	rc = parse_approve_token_text(msg->body, &token);
@@ -647,7 +648,8 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 
 	if (db_session_get(db, msg->thread_key, &session_id) < 0)
 		goto fail;
-	if (run_opencode_turn(cfg, session_id, wrapped_prompt, &new_session_id, &reply, &raw, &usage) < 0)
+	if (run_opencode_turn(cfg, session_id, wrapped_prompt, &new_session_id, &reply, &raw, &usage,
+		&session_reset) < 0)
 		goto fail;
 
 	free(token);
@@ -669,8 +671,10 @@ int tool_try_handle(const hermes_config_t *cfg, hermes_db_t *db, const hermes_me
 			goto fail;
 	}
 
-	if (new_session_id && *new_session_id)
-		db_session_set(db, msg->thread_key, new_session_id);
+	if (new_session_id && *new_session_id) {
+		if (!session_id || !*session_id || session_reset || strcmp(new_session_id, session_id) == 0)
+			db_session_set(db, msg->thread_key, new_session_id);
+	}
 	if (usage.total_tokens > 0 || usage.cost_usd > 0.0)
 		db_usage_add(db, &usage);
 	*usage_out = usage;
