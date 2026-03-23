@@ -90,7 +90,7 @@ int cfg_load(hermes_config_t *cfg)
 	if (!cfg->db_path)
 		cfg->db_path = dup_default("build/hermes.db");
 
-	cfg->tool_timeout_sec = 300;
+	cfg->tool_timeout_sec = 0;
 	{
 		char *t;
 
@@ -99,7 +99,7 @@ int cfg_load(hermes_config_t *cfg)
 			int n;
 
 			n = atoi(t);
-			if (n >= 5 && n <= 1800)
+			if (n == 0 || (n >= 5 && n <= 86400))
 				cfg->tool_timeout_sec = n;
 			free(t);
 		}

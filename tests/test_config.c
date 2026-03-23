@@ -30,7 +30,7 @@ static int test_defaults(void)
 	rc = cfg_load(&cfg);
 	if (rc < 0)
 		return -1;
-	if (!cfg.workdir || cfg.tool_timeout_sec != 300) {
+	if (!cfg.workdir || cfg.tool_timeout_sec != 0) {
 		cfg_free(&cfg);
 		return -1;
 	}

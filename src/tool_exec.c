@@ -172,7 +172,7 @@ static int run_opencode_capture(const hermes_config_t *cfg, const char *session_
 				child_done = 1;
 		}
 
-		if (!child_done && difftime(time(NULL), start) > cfg->tool_timeout_sec) {
+		if (!child_done && cfg->tool_timeout_sec > 0 && difftime(time(NULL), start) > cfg->tool_timeout_sec) {
 			kill(pid, SIGKILL);
 			waitpid(pid, &status, 0);
 			child_done = 1;
