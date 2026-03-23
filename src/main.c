@@ -2,11 +2,13 @@
 
 #include "hermes.h"
 
+#include <ctype.h>
 #include <signal.h>
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -109,6 +111,63 @@ static int sender_allowed(const hermes_config_t *cfg, const char *from)
 	free(rules);
 	free(addr);
 	return allowed;
+}
+
+static int starts_with_ci(const char *s, const char *prefix)
+{
+	if (!s || !prefix)
+		return 0;
+	while (*prefix && *s) {
+		if (tolower((unsigned char)*s) != tolower((unsigned char)*prefix))
+			return 0;
+		s++;
+		prefix++;
+	}
+	return *prefix == '\0';
+}
+
+static int is_restart_intent(const char *s)
+{
+	while (s && (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n'))
+		s++;
+	if (!s || !*s)
+		return 0;
+	if (starts_with_ci(s, "restart"))
+		return 1;
+	if (starts_with_ci(s, "please restart"))
+		return 1;
+	return 0;
+}
+
+static int run_cmd_wait(char *const argv[])
+{
+	pid_t pid;
+	int status;
+
+	pid = fork();
+	if (pid < 0)
+		return -1;
+	if (pid == 0) {
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	if (waitpid(pid, &status, 0) < 0)
+		return -1;
+	if (!WIFEXITED(status))
+		return -1;
+	return WEXITSTATUS(status);
+}
+
+static int restart_hermes_service(void)
+{
+	char *restart_argv[] = { "sudo", "systemctl", "restart", "hermes", NULL };
+	char *status_argv[] = { "sudo", "systemctl", "is-active", "hermes", NULL };
+
+	if (run_cmd_wait(restart_argv) != 0)
+		return -1;
+	if (run_cmd_wait(status_argv) != 0)
+		return -1;
+	return 0;
 }
 
 static char *capture_modified_files(const hermes_config_t *cfg)
@@ -279,12 +338,14 @@ static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const her
 	char *final_reply;
 	char *reply;
 	hermes_usage_t usage;
+	int restart_requested;
 	int seen;
 	int handled;
 
 	final_reply = NULL;
 	reply = NULL;
 	memset(&usage, 0, sizeof(usage));
+	restart_requested = 0;
 	seen = 0;
 	handled = 0;
 	if (!sender_allowed(cfg, msg->from)) {
@@ -295,11 +356,19 @@ static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const her
 		return -1;
 	if (seen)
 		return 0;
-	if (tool_try_handle(cfg, db, msg, &reply, &usage, &handled) < 0)
-		return -1;
-	if (!handled) {
-		free(reply);
-		return 0;
+	if (is_restart_intent(msg->body) || is_restart_intent(msg->subject)) {
+		handled = 1;
+		restart_requested = 1;
+		reply = xstrndup("Restarting Hermes now.", 21);
+		if (!reply)
+			return -1;
+	} else {
+		if (tool_try_handle(cfg, db, msg, &reply, &usage, &handled) < 0)
+			return -1;
+		if (!handled) {
+			free(reply);
+			return 0;
+		}
 	}
 	final_reply = append_metrics_footer(cfg, db, reply, &usage);
 	if (!final_reply)
@@ -320,6 +389,8 @@ static int handle_message(const hermes_config_t *cfg, hermes_db_t *db, const her
 	}
 	free(final_reply);
 	free(reply);
+	if (restart_requested && restart_hermes_service() < 0)
+		fprintf(stderr, "restart: failed for thread %s\n", msg->thread_key ? msg->thread_key : "(null)");
 	return 0;
 }
 
