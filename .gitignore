@@ -1,6 +1,12 @@
-build/
 .env
-*.o
-*.a
-*.so
+.venv/
+__pycache__/
+*.pyc
+*.pyo
 *.log
+build/
+dist/
+hermes_mail_agent.egg-info/
+.ruff_cache/
+.pytest_cache/
+var/

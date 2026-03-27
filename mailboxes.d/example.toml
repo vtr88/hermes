@@ -1,0 +1,17 @@
+name = "example"
+email_address = "agent@example.com"
+username = "agent@example.com"
+password = "REPLACE_WITH_APP_PASSWORD"
+imap_host = "imap.example.com"
+smtp_host = "smtp.example.com"
+allowed_from = ["you@example.com"]
+projects_root = "./var/projects/example"
+
+model = "gpt-5.4"
+reasoning_effort = "medium"
+folder = "INBOX"
+poll_seconds = 20
+imap_port = 993
+smtp_port = 465
+smtp_ssl = true
+imap_ssl = true

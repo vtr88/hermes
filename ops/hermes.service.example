@@ -1,5 +1,5 @@
 [Unit]
-Description=Hermes email daemon
+Description=Hermes email coding agent
 After=network-online.target
 Wants=network-online.target
 
@@ -7,16 +7,16 @@ Wants=network-online.target
 Type=simple
 User=hermes
 Group=hermes
-WorkingDirectory=/home/soth/Projects/hermes
-EnvironmentFile=/home/hermes/.config/hermes/hermes.env
-ExecStart=/home/soth/Projects/hermes/build/hermesd
+WorkingDirectory=/srv/hermes
+EnvironmentFile=/srv/hermes/.env
+ExecStart=/srv/hermes/.venv/bin/python -m hermes
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/home/soth/Projects/hermes/build
+ReadWritePaths=/srv/hermes
 
 [Install]
 WantedBy=multi-user.target
