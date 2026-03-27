@@ -7,16 +7,23 @@ Wants=network-online.target
 Type=simple
 User=hermes
 Group=hermes
-WorkingDirectory=/srv/hermes
-EnvironmentFile=/srv/hermes/.env
-ExecStart=/srv/hermes/.venv/bin/python -m hermes
+WorkingDirectory=/srv/hermes/app
+EnvironmentFile=/etc/hermes/hermes.env
+ExecStart=/srv/hermes/app/.venv/bin/python -m hermes
 Restart=on-failure
 RestartSec=5
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/hermes
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+StateDirectory=hermes
+LogsDirectory=hermes
+ReadOnlyPaths=/srv/hermes/app /etc/hermes
+ReadWritePaths=/srv/hermes/projects /var/lib/hermes
 
 [Install]
 WantedBy=multi-user.target
