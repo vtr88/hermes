@@ -8,7 +8,7 @@ from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import getaddresses, make_msgid, parseaddr
 from html.parser import HTMLParser
-from typing import Iterable
+from typing import Iterable, List, Optional
 
 from .models import IncomingMessage, MailboxProfile
 
@@ -29,25 +29,30 @@ class _HTMLToText(HTMLParser):
 		return " ".join(part.strip() for part in self.parts if part.strip())
 
 
-def extract_approval_token(text: str) -> str | None:
+def extract_approval_token(text: str) -> Optional[str]:
 	match = APPROVAL_RE.search(text)
 	if not match:
 		return None
 	return match.group(1)
 
 
-def extract_message_ids(raw: str | None) -> list[str]:
+def extract_message_ids(raw: Optional[str]) -> List[str]:
 	if not raw:
 		return []
 	return MESSAGE_ID_RE.findall(raw)
 
 
-def normalize_subject(subject: str | None) -> str:
+def normalize_subject(subject: Optional[str]) -> str:
 	text = (subject or "").strip()
 	return text or "New project"
 
 
-def build_thread_key(message_id: str, references: Iterable[str], in_reply_to: str | None, subject: str) -> str:
+def build_thread_key(
+	message_id: str,
+	references: Iterable[str],
+	in_reply_to: Optional[str],
+	subject: str,
+) -> str:
 	refs = list(references)
 	if refs:
 		return refs[0]

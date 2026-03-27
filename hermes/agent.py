@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, List, Optional
 
 from .models import AgentResult, ApprovalRecord, MailboxProfile, ThreadState
 from .storage import Storage
@@ -23,7 +23,7 @@ class OpenAICodeAgent:
 		profile: MailboxProfile,
 		thread: ThreadState,
 		user_text: str,
-		approval: ApprovalRecord | None = None,
+		approval: Optional[ApprovalRecord] = None,
 	) -> AgentResult:
 		toolbox = Toolbox(self.storage, thread, approval=approval)
 		instructions = _build_instructions(profile, thread)
@@ -85,8 +85,8 @@ def _build_instructions(profile: MailboxProfile, thread: ThreadState) -> str:
 	)
 
 
-def _extract_calls(response: Any) -> list[ToolCall]:
-	calls: list[ToolCall] = []
+def _extract_calls(response: Any) -> List[ToolCall]:
+	calls: List[ToolCall] = []
 	for item in getattr(response, "output", []) or []:
 		item_type = _get(item, "type")
 		if item_type not in {"function_call", "tool_call"}:
@@ -110,7 +110,7 @@ def _extract_calls(response: Any) -> list[ToolCall]:
 
 
 def _fallback_text(response: Any) -> str:
-	parts: list[str] = []
+	parts: List[str] = []
 	for item in getattr(response, "output", []) or []:
 		if _get(item, "type") == "message":
 			for content in _get(item, "content", []) or []:

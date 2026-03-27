@@ -4,15 +4,15 @@ import json
 import secrets
 import sqlite3
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List, Optional, Tuple
 
 from .models import ApprovalRecord, IncomingMessage, MailboxProfile, ThreadState
 
 
 def _utc_now() -> str:
-	return datetime.now(tz=UTC).isoformat()
+	return datetime.now(tz=timezone.utc).isoformat()
 
 
 def _slugify(text: str) -> str:
@@ -106,7 +106,7 @@ class Storage:
 		self,
 		profile: MailboxProfile,
 		message: IncomingMessage,
-	) -> tuple[ThreadState, bool]:
+	) -> Tuple[ThreadState, bool]:
 		with self._connect() as conn:
 			row = conn.execute(
 				"SELECT * FROM threads WHERE mailbox = ? AND thread_key = ?",
@@ -155,7 +155,7 @@ class Storage:
 			text=True,
 		)
 
-	def update_thread(self, thread_id: int, response_id: str | None, plan_json: str) -> None:
+	def update_thread(self, thread_id: int, response_id: Optional[str], plan_json: str) -> None:
 		with self._connect() as conn:
 			conn.execute(
 				"""
@@ -166,14 +166,14 @@ class Storage:
 				(response_id, plan_json, _utc_now(), thread_id),
 			)
 
-	def log_messages(self, thread_id: int, entries: Iterable[tuple[str, str]]) -> None:
+	def log_messages(self, thread_id: int, entries: Iterable[Tuple[str, str]]) -> None:
 		with self._connect() as conn:
 			conn.executemany(
 				"INSERT INTO message_log(thread_id, direction, body, created_at) VALUES(?, ?, ?, ?)",
 				[(thread_id, direction, body, _utc_now()) for direction, body in entries],
 			)
 
-	def create_approval(self, thread_id: int, command: list[str], workdir: str) -> str:
+	def create_approval(self, thread_id: int, command: List[str], workdir: str) -> str:
 		token = secrets.token_urlsafe(9)
 		with self._connect() as conn:
 			conn.execute(
@@ -185,7 +185,7 @@ class Storage:
 			)
 		return token
 
-	def consume_approval(self, mailbox: str, thread_key: str, token: str) -> ApprovalRecord | None:
+	def consume_approval(self, mailbox: str, thread_key: str, token: str) -> Optional[ApprovalRecord]:
 		with self._connect() as conn:
 			row = conn.execute(
 				"""
@@ -209,7 +209,7 @@ class Storage:
 	def _new_workspace_path(self, profile: MailboxProfile, subject: str) -> Path:
 		base = profile.projects_root.expanduser()
 		base.mkdir(parents=True, exist_ok=True)
-		name = f"{datetime.now(tz=UTC).strftime('%Y%m%d-%H%M%S')}-{_slugify(subject)}"
+		name = f"{datetime.now(tz=timezone.utc).strftime('%Y%m%d-%H%M%S')}-{_slugify(subject)}"
 		path = base / name
 		counter = 1
 		while path.exists():

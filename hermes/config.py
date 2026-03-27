@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
-import tomllib
 from pathlib import Path
+
+try:
+	import tomllib as toml_loader
+except ModuleNotFoundError:
+	import tomli as toml_loader
 
 from .models import AppConfig, MailboxProfile
 
@@ -53,7 +57,7 @@ def load_mailbox_profiles(app: AppConfig) -> list[MailboxProfile]:
 		raise ValueError(f"mailbox config dir does not exist: {app.config_dir}")
 	profiles: list[MailboxProfile] = []
 	for path in sorted(app.config_dir.glob("*.toml")):
-		data = tomllib.loads(path.read_text(encoding="utf-8"))
+		data = toml_loader.loads(path.read_text(encoding="utf-8"))
 		profiles.append(_profile_from_toml(path, data, app))
 	if not profiles:
 		raise ValueError(f"no mailbox profiles found in {app.config_dir}")

@@ -8,22 +8,22 @@ Operating rules for coding agents in `hermes`.
 - Prefer standard-library solutions unless a dependency clearly earns its keep.
 
 ## Source Of Truth
-- `Makefile` defines the supported local commands.
+- `pyproject.toml` defines packaging and Python compatibility.
 - `README.md` defines operator-facing behavior and deployment expectations.
 - Mailbox profile TOML files define runtime users/mailboxes.
 
 ## Build / Lint / Test Commands
-Use `make` targets as the source of truth.
+Use direct Python commands unless the repo adds a dedicated task runner later.
 
 ### Core Commands
-- Build/check syntax: `make`
-- Run service: `make run`
-- Run static checks: `make lint`
-- Run tests: `make test`
-- Clean caches/artifacts: `make clean`
+- Build/check syntax: `python3 -m compileall hermes tests`
+- Run service: `python3 -m hermes`
+- Run static checks: `ruff check hermes tests`
+- Run tests: `python3 -m unittest discover -s tests -p 'test_*.py' -v`
+- Clean caches/artifacts: remove `__pycache__`, `.ruff_cache`, and local build outputs
 
 ### Tooling Expectations
-- Python: 3.11+
+- Python: 3.9+
 - Package manager: `pip`
 - Tests: stdlib `unittest`
 - Lint: prefer `ruff` when available, otherwise fall back to syntax checks

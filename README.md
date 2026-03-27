@@ -23,15 +23,9 @@ for approval before risky actions.
   - shell commands with approval gates
 - sends plain-text replies over SMTP
 
-## Why This Repo Changed
-
-The original C daemon grew around hand-rolled mail parsing and brittle process
-glue. Hermes now targets Python so MIME handling, mailbox orchestration, SQLite,
-and OpenAI integration stay maintainable.
-
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.9 or newer
 - an OpenAI API key
 - IMAP and SMTP credentials for each mailbox user
 - `git` available in `PATH`
@@ -81,7 +75,7 @@ imap_port = 993
 ## Running
 
 ```sh
-make run
+python3 -m hermes
 ```
 
 Hermes loads every `*.toml` file from `HERMES_CONFIG_DIR`, starts one mailbox
@@ -130,10 +124,10 @@ different GPT-5 family model later without changing the code.
 ## Local Commands
 
 ```sh
-make
-make lint
-make test
-make run
+python3 -m compileall hermes tests
+ruff check hermes tests
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 -m hermes
 ```
 
 ## systemd Example

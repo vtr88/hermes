@@ -4,7 +4,6 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from .agent import OpenAICodeAgent
 from .mailbox import MailboxClient, extract_approval_token
@@ -22,7 +21,7 @@ class HermesService:
 		self.agent = OpenAICodeAgent(self.storage, api_key=app.openai_api_key, max_tool_rounds=app.max_tool_rounds)
 		self.stop_event = threading.Event()
 		self.executor = ThreadPoolExecutor(max_workers=app.max_workers)
-		self.thread_locks: dict[tuple[str, str], threading.Lock] = {}
+		self.thread_locks = {}
 		self.thread_locks_guard = threading.Lock()
 
 	def serve_forever(self) -> None:

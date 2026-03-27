@@ -6,7 +6,7 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
 
 from .models import ApprovalRecord, ThreadState
 from .storage import Storage
@@ -24,7 +24,6 @@ SAFE_TOP_LEVEL = {
 	"python",
 	"python3",
 	"pytest",
-	"make",
 	"npm",
 	"pnpm",
 	"yarn",
@@ -52,11 +51,11 @@ BANNED_TOP_LEVEL = {
 }
 
 
-@dataclass(slots=True)
+@dataclass
 class ToolCall:
 	call_id: str
 	name: str
-	arguments: dict[str, Any]
+	arguments: Dict[str, Any]
 
 
 class Toolbox:
@@ -64,7 +63,7 @@ class Toolbox:
 		self,
 		storage: Storage,
 		thread: ThreadState,
-		approval: ApprovalRecord | None = None,
+		approval: Optional[ApprovalRecord] = None,
 	) -> None:
 		self.storage = storage
 		self.thread = thread
@@ -72,7 +71,7 @@ class Toolbox:
 		self.approval = approval
 
 	@property
-	def specs(self) -> list[dict[str, Any]]:
+	def specs(self) -> List[Dict[str, Any]]:
 		return [
 			_function(
 				"update_plan",
@@ -185,11 +184,11 @@ class Toolbox:
 			return {"status": "error", "message": f"unknown tool: {call.name}"}
 		return handler(**call.arguments)
 
-	def _tool_update_plan(self, items: list[dict[str, str]], explanation: str = "") -> dict[str, Any]:
+	def _tool_update_plan(self, items: List[Dict[str, str]], explanation: str = "") -> Dict[str, Any]:
 		self.plan_json = json.dumps(items)
 		return {"status": "ok", "explanation": explanation, "items": items}
 
-	def _tool_list_files(self, path: str = ".", recursive: bool = False, limit: int = 200) -> dict[str, Any]:
+	def _tool_list_files(self, path: str = ".", recursive: bool = False, limit: int = 200) -> Dict[str, Any]:
 		root = self._resolve(path)
 		if not root.exists():
 			return {"status": "error", "message": f"path does not exist: {path}"}
@@ -206,7 +205,7 @@ class Toolbox:
 				items.append(self._rel(child))
 		return {"status": "ok", "items": items}
 
-	def _tool_read_file(self, path: str, start_line: int = 1, max_lines: int = 200) -> dict[str, Any]:
+	def _tool_read_file(self, path: str, start_line: int = 1, max_lines: int = 200) -> Dict[str, Any]:
 		target = self._resolve(path)
 		if not target.is_file():
 			return {"status": "error", "message": f"not a file: {path}"}
@@ -221,9 +220,9 @@ class Toolbox:
 			"content": "\n".join(selected),
 		}
 
-	def _tool_search_text(self, pattern: str, path: str = ".") -> dict[str, Any]:
+	def _tool_search_text(self, pattern: str, path: str = ".") -> Dict[str, Any]:
 		root = self._resolve(path)
-		results: list[str] = []
+		results: List[str] = []
 		for candidate in sorted(root.rglob("*")):
 			if not candidate.is_file() or ".git" in candidate.parts:
 				continue
@@ -237,13 +236,13 @@ class Toolbox:
 				continue
 		return {"status": "ok", "matches": results}
 
-	def _tool_write_file(self, path: str, content: str) -> dict[str, Any]:
+	def _tool_write_file(self, path: str, content: str) -> Dict[str, Any]:
 		target = self._resolve(path)
 		target.parent.mkdir(parents=True, exist_ok=True)
 		target.write_text(content, encoding="utf-8")
 		return {"status": "ok", "path": self._rel(target), "bytes": len(content.encode("utf-8"))}
 
-	def _tool_apply_patch(self, patch: str) -> dict[str, Any]:
+	def _tool_apply_patch(self, patch: str) -> Dict[str, Any]:
 		try:
 			check = subprocess.run(
 				["git", "-C", str(self.thread.workspace), "apply", "--check", "--whitespace=nowarn", "-"],
@@ -273,10 +272,10 @@ class Toolbox:
 
 	def _tool_run_command(
 		self,
-		command: str | list[str],
+		command: Union[str, List[str]],
 		workdir: str = ".",
 		timeout_sec: int = 600,
-	) -> dict[str, Any]:
+	) -> Dict[str, Any]:
 		argv = shlex.split(command) if isinstance(command, str) else list(command)
 		if not argv:
 			return {"status": "error", "message": "empty command"}
@@ -312,7 +311,7 @@ class Toolbox:
 			"stderr": proc.stderr[-12000:],
 		}
 
-	def _needs_approval(self, argv: list[str], cwd: Path) -> bool:
+	def _needs_approval(self, argv: List[str], cwd: Path) -> bool:
 		top = argv[0]
 		if self.approval and argv == self.approval.command and self._rel(cwd) == self.approval.workdir:
 			return False
@@ -339,7 +338,7 @@ class Toolbox:
 		return str(path.resolve().relative_to(self.thread.workspace.resolve())) or "."
 
 
-def _function(name: str, description: str, parameters: dict[str, Any]) -> dict[str, Any]:
+def _function(name: str, description: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
 	return {
 		"type": "function",
 		"name": name,

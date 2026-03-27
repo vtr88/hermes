@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Optional
 
 
-@dataclass(slots=True)
+@dataclass
 class AppConfig:
 	config_dir: Path
 	state_dir: Path
@@ -16,7 +16,7 @@ class AppConfig:
 	openai_api_key: str
 
 
-@dataclass(slots=True)
+@dataclass
 class MailboxProfile:
 	name: str
 	email_address: str
@@ -24,7 +24,7 @@ class MailboxProfile:
 	password: str
 	imap_host: str
 	smtp_host: str
-	allowed_from: list[str]
+	allowed_from: List[str]
 	projects_root: Path
 	model: str
 	reasoning_effort: str
@@ -37,7 +37,7 @@ class MailboxProfile:
 	concurrency: int = 2
 
 
-@dataclass(slots=True)
+@dataclass
 class IncomingMessage:
 	uid: str
 	message_id: str
@@ -47,11 +47,11 @@ class IncomingMessage:
 	sender_email: str
 	reply_to: str
 	body_text: str
-	references: list[str] = field(default_factory=list)
-	in_reply_to: str | None = None
+	references: List[str] = field(default_factory=list)
+	in_reply_to: Optional[str] = None
 
 
-@dataclass(slots=True)
+@dataclass
 class ThreadState:
 	id: int
 	mailbox: str
@@ -61,22 +61,22 @@ class ThreadState:
 	workspace: Path
 	model: str
 	reasoning_effort: str
-	previous_response_id: str | None
+	previous_response_id: Optional[str]
 	plan_json: str
 
 
-@dataclass(slots=True)
+@dataclass
 class ApprovalRecord:
 	token: str
 	thread_id: int
-	command: list[str]
+	command: List[str]
 	workdir: str
 
 
-@dataclass(slots=True)
+@dataclass
 class AgentResult:
 	reply_text: str
-	response_id: str | None
+	response_id: Optional[str]
 	plan_json: str
 
 
